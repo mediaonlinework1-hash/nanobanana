@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Nano Banana",
+  "description": "An AI-powered image and video generation and editing application using Google's Gemini API. Users can generate images, videos, or edit images from text prompts, with an option to include a source image to guide the creation process.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,52 @@
+import React, { useState, useEffect } from 'react';
+
+const imageLoadingMessages = [
+  "Warming up the AI artists...",
+  "Gathering pixels from the digital ether...",
+  "Teaching the AI about composition and color theory...",
+  "Rendering your image...",
+  "Applying digital brushstrokes...",
+  "Almost there, adding the final touches...",
+];
+
+const videoLoadingMessages = [
+  "Briefing the AI director...",
+  "Setting up the virtual cameras and lighting...",
+  "Action! The AI is rendering the first scenes...",
+  "This can take a few minutes, great cinema takes time...",
+  "Compositing special effects and sound...",
+  "Finalizing the cut, your video is almost ready...",
+  "In the color grading suite, adding final touches...",
+];
+
+interface LoadingIndicatorProps {
+  mode: 'image' | 'video';
+}
+
+export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
+  const messages = mode === 'image' ? imageLoadingMessages : videoLoadingMessages;
+  const [message, setMessage] = useState(messages[0]);
+  const title = mode === 'image' ? 'Generating Your Masterpiece' : 'Rendering Your Video';
+
+  useEffect(() => {
+    setMessage(messages[0]); // Reset message on mode change
+    
+    const intervalId = setInterval(() => {
+      setMessage(prevMessage => {
+        const currentIndex = messages.indexOf(prevMessage);
+        const nextIndex = (currentIndex + 1) % messages.length;
+        return messages[nextIndex];
+      });
+    }, 4000);
+
+    return () => clearInterval(intervalId);
+  }, [messages]);
+
+  return (
+    <div className="text-center">
+      <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-pink-500 mx-auto"></div>
+      <p className="text-gray-300 mt-4 text-lg">{title}</p>
+      <p className="text-gray-400 mt-2 text-sm transition-opacity duration-500">{message}</p>
+    </div>
+  );
+};
