@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText } from './services/geminiService';
 import type { ImageData } from './types';
@@ -36,6 +35,7 @@ const App: React.FC = () => {
   const [targetLanguage, setTargetLanguage] = useState<string>('Spanish');
   const [stylizeAndCorrect, setStylizeAndCorrect] = useState<boolean>(false);
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
   
   const previousAssetUrl = useRef<string | null>(null);
 
@@ -43,7 +43,9 @@ const App: React.FC = () => {
     const checkKey = async () => {
       // Use a short timeout to ensure the aistudio object is available.
       setTimeout(async () => {
-        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        const isStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
+        setIsStudioEnvironment(isStudio);
+        if (isStudio) {
           try {
             const keySelected = await window.aistudio.hasSelectedApiKey();
             setHasApiKey(keySelected);
@@ -52,7 +54,7 @@ const App: React.FC = () => {
             setHasApiKey(false);
           }
         } else {
-            console.warn("aistudio API not available.");
+            console.warn("aistudio API not available. This app is intended to be run in AI Studio.");
             setHasApiKey(false);
         }
       }, 100);
@@ -286,23 +288,32 @@ const App: React.FC = () => {
           <p className="text-gray-300 mb-6">
             To use this application, please select a Gemini API key from a project with billing enabled.
           </p>
-          <div className="mb-4">
-            <ErrorDisplay message={error} />
-          </div>
-          <button
-            onClick={handleSelectKey}
-            className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
-          >
-            Select API Key
-          </button>
-          <a
-            href="https://ai.google.dev/gemini-api/docs/billing"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block mt-4 text-sm text-pink-400 hover:text-pink-300 transition-colors"
-          >
-            Learn more about billing
-          </a>
+          {isStudioEnvironment ? (
+            <>
+              <div className="mb-4">
+                <ErrorDisplay message={error} />
+              </div>
+              <button
+                onClick={handleSelectKey}
+                className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
+              >
+                Select API Key
+              </button>
+              <a
+                href="https://ai.google.dev/gemini-api/docs/billing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block mt-4 text-sm text-pink-400 hover:text-pink-300 transition-colors"
+              >
+                Learn more about billing
+              </a>
+            </>
+          ) : (
+            <div className="bg-yellow-900/50 text-yellow-200 border border-yellow-700 p-4 rounded-lg text-sm mt-4 text-left">
+              <p><span className="font-bold">Environment Notice:</span> This application is designed to run within Google AI Studio.</p>
+              <p className="mt-2">The API key selection feature is unavailable. Please run this app in AI Studio to use it.</p>
+            </div>
+          )}
         </div>
       </div>
     );
