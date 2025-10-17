@@ -11,8 +11,6 @@ import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector } from './components/VideoPlayer';
 
-// FIX: Removed duplicate global declaration for window.aistudio to resolve type conflicts.
-// The error messages indicate this type is already defined elsewhere.
 const PERSON_ACTIONS = [
   "caminando",
   "leyendo un libro",
@@ -137,10 +135,18 @@ const App: React.FC = () => {
     } catch (err: unknown) {
       let errorMessage = 'An unknown error occurred during the API call.';
       if (err instanceof Error) {
-        errorMessage = err.message;
-        if (errorMessage.includes("API key not found") || errorMessage.includes("Requested entity was not found") || errorMessage.includes("permission")) {
-            errorMessage = "Your API key is invalid or is missing required permissions. Please select a valid key.";
-            setHasApiKey(false);
+        const errText = err.message.toLowerCase();
+        if (
+          errText.includes("api key not found") ||
+          errText.includes("requested entity was not found") ||
+          errText.includes("permission") ||
+          errText.includes("quota") ||
+          errText.includes("resource_exhausted")
+        ) {
+          errorMessage = "The selected API key has exceeded its quota or is invalid. Please select a different key from a project with billing enabled.";
+          setHasApiKey(false); // Force user to re-select a key
+        } else {
+           errorMessage = err.message;
         }
       }
       setError(errorMessage);
@@ -280,6 +286,9 @@ const App: React.FC = () => {
           <p className="text-gray-300 mb-6">
             To use this application, please select a Gemini API key from a project with billing enabled.
           </p>
+          <div className="mb-4">
+            <ErrorDisplay message={error} />
+          </div>
           <button
             onClick={handleSelectKey}
             className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
@@ -294,9 +303,6 @@ const App: React.FC = () => {
           >
             Learn more about billing
           </a>
-          <div className="mt-4">
-            <ErrorDisplay message={error} />
-          </div>
         </div>
       </div>
     );
