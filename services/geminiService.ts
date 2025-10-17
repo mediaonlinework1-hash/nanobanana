@@ -1,18 +1,18 @@
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { ImageData } from '../types';
 
-// Always create a new client to ensure the latest API key from the environment is used.
-function getAiClient(): GoogleGenAI {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    // This error will be caught by the calling function and trigger the key selection prompt.
-    throw new Error("API key not found. Please select an API key.");
+// The client is initialized with the key provided by the user.
+function getAiClient(apiKey: string): GoogleGenAI {
+  // If the key is the placeholder from AI Studio, use the environment's key.
+  const finalApiKey = apiKey === 'aistudio_managed_key' ? process.env.API_KEY : apiKey;
+  if (!finalApiKey) {
+    throw new Error("API key is invalid.");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: finalApiKey });
 }
 
-export const generateImage = async (prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
-  const ai = getAiClient();
+export const generateImage = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
+  const ai = getAiClient(apiKey);
   const parts: any[] = [{ text: prompt }];
 
   if (imageData) {
@@ -47,8 +47,8 @@ export const generateImage = async (prompt: string, imageData: ImageData | null)
 };
 
 
-export const analyzeImage = async (imageData: ImageData): Promise<string> => {
-  const ai = getAiClient();
+export const analyzeImage = async (apiKey: string, imageData: ImageData): Promise<string> => {
+  const ai = getAiClient(apiKey);
   const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
 
   const parts = [
@@ -74,11 +74,11 @@ export const analyzeImage = async (imageData: ImageData): Promise<string> => {
   return analysisText;
 };
 
-export const generateVideo = async (prompt: string, imageData: ImageData | null): Promise<Blob> => {
-  const ai = getAiClient();
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API key not found. Please select an API key.");
+export const generateVideo = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<Blob> => {
+  const ai = getAiClient(apiKey);
+  const envApiKey = apiKey === 'aistudio_managed_key' ? process.env.API_KEY : apiKey;
+  if (!envApiKey) {
+    throw new Error("API key not found.");
   }
   
   const request: {
@@ -114,7 +114,7 @@ export const generateVideo = async (prompt: string, imageData: ImageData | null)
     throw new Error(errorText);
   }
 
-  const response = await fetch(`${downloadLink}&key=${apiKey}`);
+  const response = await fetch(`${downloadLink}&key=${envApiKey}`);
   if (!response.ok) {
     throw new Error(`Failed to download video. Status: ${response.status} ${response.statusText}`);
   }
@@ -123,8 +123,8 @@ export const generateVideo = async (prompt: string, imageData: ImageData | null)
 };
 
 
-export const generateRecipe = async (prompt: string): Promise<string> => {
-    const ai = getAiClient();
+export const generateRecipe = async (apiKey: string, prompt: string): Promise<string> => {
+    const ai = getAiClient(apiKey);
     const fullPrompt = `Generate a recipe based on this prompt: "${prompt}". Your response must be a JSON object with the following schema: { "title": "string", "description": "string", "ingredients": ["string"], "instructions": ["string"] }. Make sure the description is brief.`;
 
     const response = await ai.models.generateContent({
@@ -182,8 +182,8 @@ export const generateRecipe = async (prompt: string): Promise<string> => {
     }
   };
   
-export const translateText = async (text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
-  const ai = getAiClient();
+export const translateText = async (apiKey: string, text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
+  const ai = getAiClient(apiKey);
   let prompt: string;
 
   if (stylize) {

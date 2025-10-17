@@ -9,6 +9,7 @@ import { AssetDisplay } from './components/AssetDisplay';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector } from './components/VideoPlayer';
+import { ApiKeyInput } from './components/ApiKeyInput';
 
 const PERSON_ACTIONS = [
   "caminando",
@@ -34,32 +35,31 @@ const App: React.FC = () => {
   const [contextualPersonSuggestion, setContextualPersonSuggestion] = useState<string | null>(null);
   const [targetLanguage, setTargetLanguage] = useState<string>('Spanish');
   const [stylizeAndCorrect, setStylizeAndCorrect] = useState<boolean>(false);
+  
+  const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
   
   const previousAssetUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    const checkKey = async () => {
-      // Use a short timeout to ensure the aistudio object is available.
-      setTimeout(async () => {
-        const isStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
-        setIsStudioEnvironment(isStudio);
-        if (isStudio) {
-          try {
-            const keySelected = await window.aistudio.hasSelectedApiKey();
-            setHasApiKey(keySelected);
-          } catch (e) {
-            console.error("Error checking for API key:", e);
-            setHasApiKey(false);
-          }
-        } else {
-            console.warn("aistudio API not available. This app is intended to be run in AI Studio.");
-            setHasApiKey(false);
+    // Check for AI Studio environment and if a key is already stored.
+    const isStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
+    setIsStudioEnvironment(isStudio);
+    
+    const storedKey = localStorage.getItem('gemini-api-key');
+    if (storedKey) {
+      setHasApiKey(true);
+    } else if (isStudio) {
+      // If in studio, check if a key has been selected via the native dialog
+      window.aistudio.hasSelectedApiKey().then(keySelected => {
+        if (keySelected) {
+           // We'll use a placeholder to signify a key is managed by the environment
+           localStorage.setItem('gemini-api-key', 'aistudio_managed_key');
+           setHasApiKey(true);
         }
-      }, 100);
-    };
-    checkKey();
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -89,14 +89,16 @@ const App: React.FC = () => {
         setContextualPersonSuggestion(null);
         setError(null);
         try {
-          const suggestion = await analyzeImage(imageData);
+          const apiKey = localStorage.getItem('gemini-api-key');
+          if (!apiKey) throw new Error("API Key not found in storage.");
+          const suggestion = await analyzeImage(apiKey, imageData);
           setContextualPersonSuggestion(suggestion);
         } catch (e) {
           console.error("Image analysis failed:", e);
           if (e instanceof Error) {
-            if (e.message.includes("API key not found") || e.message.includes("Requested entity was not found")) {
-                setError("Your API key is invalid or missing permissions. Please select a valid key.");
-                setHasApiKey(false);
+            if (e.message.includes("API key not found") || e.message.includes("API key is invalid")) {
+                setError("Your API key is invalid or missing permissions. Please enter a valid key.");
+                handleClearKey();
             }
           }
           setContextualPersonSuggestion(null); 
@@ -110,13 +112,29 @@ const App: React.FC = () => {
     };
     analyze();
   }, [imageData, mode, hasApiKey]);
+  
+  const handleSaveKey = () => {
+    if (apiKeyInput.trim()) {
+      localStorage.setItem('gemini-api-key', apiKeyInput.trim());
+      setHasApiKey(true);
+      setError(null);
+    } else {
+      setError("Please enter a valid API key.");
+    }
+  };
 
-  const handleSelectKey = async () => {
+  const handleClearKey = () => {
+    localStorage.removeItem('gemini-api-key');
+    setHasApiKey(false);
+    setApiKeyInput('');
+  };
+
+  const handleSelectKeyFromStudio = async () => {
     setError(null);
     if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
       await window.aistudio.openSelectKey();
-      // Optimistically assume key selection was successful to update the UI.
-      // API call error handling will catch cases where it wasn't.
+      // Use a placeholder to signify a key is managed by the environment
+      localStorage.setItem('gemini-api-key', 'aistudio_managed_key');
       setHasApiKey(true);
     } else {
       setError("API Key selection is unavailable in this environment.");
@@ -124,29 +142,32 @@ const App: React.FC = () => {
   };
 
   const callGeminiService = async <T,>(
-    serviceCall: (...args: any[]) => Promise<T>, 
+    serviceCall: (apiKey: string, ...args: any[]) => Promise<T>, 
     ...args: any[]
   ): Promise<T | null> => {
-    if (!hasApiKey) {
-      setError("Please select an API key to proceed.");
+    const apiKey = localStorage.getItem('gemini-api-key');
+    if (!apiKey) {
+      setError("Please provide an API key to proceed.");
+      setHasApiKey(false);
       return null;
     }
     setError(null);
     try {
-      return await serviceCall(...args);
+      return await serviceCall(apiKey, ...args);
     } catch (err: unknown) {
       let errorMessage = 'An unknown error occurred during the API call.';
       if (err instanceof Error) {
         const errText = err.message.toLowerCase();
         if (
           errText.includes("api key not found") ||
+          errText.includes("api key is invalid") ||
           errText.includes("requested entity was not found") ||
           errText.includes("permission") ||
           errText.includes("quota") ||
           errText.includes("resource_exhausted")
         ) {
-          errorMessage = "The selected API key has exceeded its quota or is invalid. Please select a different key from a project with billing enabled.";
-          setHasApiKey(false); // Force user to re-select a key
+          errorMessage = "The provided API key has exceeded its quota or is invalid. Please clear it and enter a different key from a project with billing enabled.";
+          handleClearKey();
         } else {
            errorMessage = err.message;
         }
@@ -286,34 +307,42 @@ const App: React.FC = () => {
             Welcome to Nano Banana
           </h2>
           <p className="text-gray-300 mb-6">
-            To use this application, please select a Gemini API key from a project with billing enabled.
+            To use this application, please enter your Gemini API key.
           </p>
-          {isStudioEnvironment ? (
+          <ApiKeyInput
+            apiKeyInput={apiKeyInput}
+            setApiKeyInput={setApiKeyInput}
+            onSave={handleSaveKey}
+            onClear={handleClearKey}
+            disabled={false}
+          />
+          <div className="my-4">
+            <ErrorDisplay message={error} />
+          </div>
+          {isStudioEnvironment && (
             <>
-              <div className="mb-4">
-                <ErrorDisplay message={error} />
+              <div className="relative flex items-center justify-center my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-600"></div>
+                </div>
+                <div className="relative px-2 bg-gray-800 text-sm text-gray-400">OR</div>
               </div>
               <button
-                onClick={handleSelectKey}
+                onClick={handleSelectKeyFromStudio}
                 className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
               >
-                Select API Key
+                Select API Key from AI Studio
               </button>
-              <a
-                href="https://ai.google.dev/gemini-api/docs/billing"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block mt-4 text-sm text-pink-400 hover:text-pink-300 transition-colors"
-              >
-                Learn more about billing
-              </a>
             </>
-          ) : (
-            <div className="bg-yellow-900/50 text-yellow-200 border border-yellow-700 p-4 rounded-lg text-sm mt-4 text-left">
-              <p><span className="font-bold">Environment Notice:</span> This application is designed to run within Google AI Studio.</p>
-              <p className="mt-2">The API key selection feature is unavailable. Please run this app in AI Studio to use it.</p>
-            </div>
           )}
+           <a
+              href="https://ai.google.dev/gemini-api/docs/api-key"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mt-4 text-sm text-pink-400 hover:text-pink-300 transition-colors"
+            >
+              Get an API Key
+            </a>
         </div>
       </div>
     );
@@ -404,7 +433,17 @@ const App: React.FC = () => {
           
           <div className="mt-8">
             <ErrorDisplay message={error} />
-            <GenerateButton onClick={handleGenerate} disabled={isLoading || !canGenerate} mode={mode} />
+            <div className="flex flex-col sm:flex-row gap-4 items-center">
+                <div className="flex-grow w-full">
+                    <GenerateButton onClick={handleGenerate} disabled={isLoading || !canGenerate} mode={mode} />
+                </div>
+                <button 
+                    onClick={handleClearKey} 
+                    className="w-full sm:w-auto px-4 py-2 text-sm font-semibold text-gray-300 bg-gray-700 rounded-full hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-gray-500 transition-colors duration-200"
+                >
+                    Clear API Key
+                </button>
+            </div>
           </div>
         </main>
       </div>
