@@ -140,6 +140,13 @@ const App: React.FC = () => {
       setError("API Key selection is unavailable in this environment.");
     }
   };
+  
+  const handleApiKeyInputChange = (value: string) => {
+    setApiKeyInput(value);
+    if (error) {
+        setError(null); // Clear previous errors on new input
+    }
+  };
 
   const callGeminiService = async <T,>(
     serviceCall: (apiKey: string, ...args: any[]) => Promise<T>, 
@@ -318,7 +325,7 @@ const App: React.FC = () => {
           </p>
           <ApiKeyInput
             apiKeyInput={apiKeyInput}
-            setApiKeyInput={setApiKeyInput}
+            setApiKeyInput={handleApiKeyInputChange}
             onSave={handleSaveKey}
             onClear={handleClearKey}
             disabled={false}
@@ -342,14 +349,6 @@ const App: React.FC = () => {
               </button>
             </>
           )}
-           <a
-              href="https://ai.google.dev/gemini-api/docs/api-key"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block mt-4 text-sm text-pink-400 hover:text-pink-300 transition-colors"
-            >
-              Get an API Key
-            </a>
         </div>
       </div>
     );

@@ -61,6 +61,16 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
                     Clear
                 </button>
             </div>
+            <p className="text-center mt-3">
+              <a
+                href="https://ai.google.dev/gemini-api/docs/api-key"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-pink-400 hover:text-pink-300 transition-colors"
+              >
+                Don't have a key? Get your Gemini API key here.
+              </a>
+            </p>
         </div>
     );
 };
