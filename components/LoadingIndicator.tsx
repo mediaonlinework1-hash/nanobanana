@@ -19,14 +19,53 @@ const videoLoadingMessages = [
   "In the color grading suite, adding final touches...",
 ];
 
+const recipeLoadingMessages = [
+  "Consulting with our AI chef...",
+  "Preheating the virtual oven...",
+  "Gathering the freshest digital ingredients...",
+  "Simmering the prompt...",
+  "Plating the recipe...",
+  "Your recipe is almost ready to serve!",
+];
+
+const translationLoadingMessages = [
+  "Consulting with our AI linguists...",
+  "Looking up words in a digital dictionary...",
+  "Considering grammar and context...",
+  "Translating your text...",
+  "Proofreading the translation...",
+  "Your translation is almost ready!",
+];
+
 interface LoadingIndicatorProps {
-  mode: 'image' | 'video';
+  mode: 'image' | 'video' | 'recipe' | 'translation';
 }
 
 export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
-  const messages = mode === 'image' ? imageLoadingMessages : videoLoadingMessages;
+  let messages: string[];
+  let title: string;
+
+  switch (mode) {
+    case 'video':
+      messages = videoLoadingMessages;
+      title = 'Rendering Your Video';
+      break;
+    case 'recipe':
+      messages = recipeLoadingMessages;
+      title = 'Preparing Your Recipe';
+      break;
+    case 'translation':
+        messages = translationLoadingMessages;
+        title = 'Translating Your Text';
+        break;
+    case 'image':
+    default:
+      messages = imageLoadingMessages;
+      title = 'Generating Your Masterpiece';
+      break;
+  }
+  
   const [message, setMessage] = useState(messages[0]);
-  const title = mode === 'image' ? 'Generating Your Masterpiece' : 'Rendering Your Video';
 
   useEffect(() => {
     setMessage(messages[0]); // Reset message on mode change

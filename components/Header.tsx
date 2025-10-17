@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const Header: React.FC = () => (
@@ -9,7 +8,7 @@ export const Header: React.FC = () => (
       </span>
     </h1>
     <p className="mt-4 text-lg text-gray-300">
-      Bring your ideas to life with AI-powered image generation and editing.
+      Bring your ideas to life with AI-powered tools. Enter your own API key to get started.
     </p>
   </header>
 );

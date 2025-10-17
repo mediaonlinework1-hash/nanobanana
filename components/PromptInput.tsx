@@ -12,7 +12,7 @@ interface PromptInputProps {
   contextualPersonSuggestion: string | null;
   addPerson: boolean;
   setAddPerson: (addPerson: boolean) => void;
-  mode: 'image' | 'video';
+  mode: 'image' | 'video' | 'recipe' | 'translation';
 }
 
 const SIMILARITY_SUGGESTIONS = [25, 50, 75, 100];
@@ -56,11 +56,29 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     });
   };
 
+  const getLabelText = () => {
+    switch (mode) {
+      case 'recipe': return '1. Describe the recipe you want to generate';
+      case 'translation': return '1. Enter the text you want to translate';
+      default: return `1. Describe the ${mode} you want to create or edit`;
+    }
+  };
+  
+  const getPlaceholderText = () => {
+    switch(mode) {
+      case 'image': return "e.g., A majestic lion wearing a crown, sitting on a throne";
+      case 'video': return "e.g., A cinematic shot of a futuristic city at night, rain-slicked streets reflecting neon signs";
+      case 'recipe': return "e.g., A quick and easy recipe for vegan pancakes";
+      case 'translation': return "e.g., Hello, how are you today?";
+      default: return "";
+    }
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
         <label htmlFor="prompt" className="block text-sm font-medium text-gray-300">
-          1. Describe the {mode} you want to create or edit
+          {getLabelText()}
         </label>
         {mode === 'image' && (
           <div className="flex items-center space-x-2">
@@ -139,15 +157,11 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
       <textarea
         id="prompt"
-        rows={4}
+        rows={mode === 'recipe' || mode === 'translation' ? 8 : 4}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         disabled={disabled}
-        placeholder={
-          mode === 'image'
-            ? "e.g., A majestic lion wearing a crown, sitting on a throne"
-            : "e.g., A cinematic shot of a futuristic city at night, rain-slicked streets reflecting neon signs"
-        }
+        placeholder={getPlaceholderText()}
         className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
       />
     </div>

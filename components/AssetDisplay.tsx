@@ -3,7 +3,7 @@ import React from 'react';
 interface AssetDisplayProps {
   src: string;
   alt: string;
-  assetType: 'image' | 'video' | null;
+  assetType: 'image' | 'video' | 'recipe' | 'translation' | null;
 }
 
 export const AssetDisplay: React.FC<AssetDisplayProps> = ({ src, alt, assetType }) => {
@@ -31,6 +31,14 @@ export const AssetDisplay: React.FC<AssetDisplayProps> = ({ src, alt, assetType 
           className="w-full h-auto object-contain max-h-[60vh] rounded-lg shadow-lg"
           aria-label={alt || 'Generated video'}
         />
+      </div>
+    );
+  }
+
+  if (assetType === 'recipe' || assetType === 'translation') {
+    return (
+      <div className="w-full bg-gray-900/75 p-4 rounded-lg text-left overflow-y-auto max-h-[60vh]">
+        <pre className="text-gray-200 whitespace-pre-wrap font-mono text-sm">{src}</pre>
       </div>
     );
   }
