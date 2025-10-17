@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText } from './services/geminiService';
 import type { ImageData } from './types';
@@ -9,8 +10,9 @@ import { AssetDisplay } from './components/AssetDisplay';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector } from './components/VideoPlayer';
-import { ApiKeyInput } from './components/ApiKeyInput';
 
+// FIX: Removed duplicate global declaration for window.aistudio to resolve type conflicts.
+// The error messages indicate this type is already defined elsewhere.
 const PERSON_ACTIONS = [
   "caminando",
   "leyendo un libro",
@@ -35,17 +37,29 @@ const App: React.FC = () => {
   const [contextualPersonSuggestion, setContextualPersonSuggestion] = useState<string | null>(null);
   const [targetLanguage, setTargetLanguage] = useState<string>('Spanish');
   const [stylizeAndCorrect, setStylizeAndCorrect] = useState<boolean>(false);
-  const [apiKey, setApiKey] = useState<string>('');
-  const [apiKeyInput, setApiKeyInput] = useState<string>('');
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   
   const previousAssetUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    const savedKey = localStorage.getItem('gemini_api_key');
-    if (savedKey) {
-        setApiKey(savedKey);
-        setApiKeyInput(savedKey);
-    }
+    const checkKey = async () => {
+      // Use a short timeout to ensure the aistudio object is available.
+      setTimeout(async () => {
+        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+          try {
+            const keySelected = await window.aistudio.hasSelectedApiKey();
+            setHasApiKey(keySelected);
+          } catch (e) {
+            console.error("Error checking for API key:", e);
+            setHasApiKey(false);
+          }
+        } else {
+            console.warn("aistudio API not available.");
+            setHasApiKey(false);
+        }
+      }, 100);
+    };
+    checkKey();
   }, []);
 
   useEffect(() => {
@@ -64,19 +78,26 @@ const App: React.FC = () => {
   }, [assetUrl]);
 
   useEffect(() => {
-    if (mode !== 'image') return;
+    if (mode !== 'image' || !hasApiKey) {
+      setContextualPersonSuggestion(null);
+      setIsAnalyzing(false);
+      return;
+    };
     const analyze = async () => {
-      const activeApiKey = apiKey;
-      if (imageData && activeApiKey.trim()) {
+      if (imageData) {
         setIsAnalyzing(true);
         setContextualPersonSuggestion(null);
+        setError(null);
         try {
-          const suggestion = await analyzeImage(activeApiKey, imageData);
+          const suggestion = await analyzeImage(imageData);
           setContextualPersonSuggestion(suggestion);
         } catch (e) {
           console.error("Image analysis failed:", e);
           if (e instanceof Error) {
-            setError(e.message);
+            if (e.message.includes("API key not found") || e.message.includes("Requested entity was not found")) {
+                setError("Your API key is invalid or missing permissions. Please select a valid key.");
+                setHasApiKey(false);
+            }
           }
           setContextualPersonSuggestion(null); 
         } finally {
@@ -88,42 +109,41 @@ const App: React.FC = () => {
       }
     };
     analyze();
-  }, [imageData, mode, apiKey]);
+  }, [imageData, mode, hasApiKey]);
 
-  const handleSaveKey = () => {
-    if (apiKeyInput.trim()) {
-        localStorage.setItem('gemini_api_key', apiKeyInput);
-        setApiKey(apiKeyInput);
-        setError(null);
+  const handleSelectKey = async () => {
+    setError(null);
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      // Optimistically assume key selection was successful to update the UI.
+      // API call error handling will catch cases where it wasn't.
+      setHasApiKey(true);
     } else {
-        setError("API Key cannot be empty.");
+      setError("API Key selection is unavailable in this environment.");
     }
   };
 
-  const handleClearKey = () => {
-      localStorage.removeItem('gemini_api_key');
-      setApiKey('');
-      setApiKeyInput('');
-  };
-
-  const runWithApiKey = async <T,>(
-    serviceCall: (apiKey: string, ...args: any[]) => Promise<T>, 
+  const callGeminiService = async <T,>(
+    serviceCall: (...args: any[]) => Promise<T>, 
     ...args: any[]
   ): Promise<T | null> => {
-    const activeApiKey = apiKey;
-    if (!activeApiKey.trim()) {
-        setError("Please save your Gemini API key in the input field above.");
-        return null;
+    if (!hasApiKey) {
+      setError("Please select an API key to proceed.");
+      return null;
     }
     setError(null);
     try {
-      return await serviceCall(activeApiKey, ...args);
+      return await serviceCall(...args);
     } catch (err: unknown) {
+      let errorMessage = 'An unknown error occurred during the API call.';
       if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('An unknown error occurred during the API call.');
+        errorMessage = err.message;
+        if (errorMessage.includes("API key not found") || errorMessage.includes("Requested entity was not found") || errorMessage.includes("permission")) {
+            errorMessage = "Your API key is invalid or is missing required permissions. Please select a valid key.";
+            setHasApiKey(false);
+        }
       }
+      setError(errorMessage);
       return null;
     }
   };
@@ -150,7 +170,7 @@ const App: React.FC = () => {
     setAssetUrl(null);
     setAssetType(null);
 
-    const base64ImageData = await runWithApiKey(generateImage, finalPrompt, imageData);
+    const base64ImageData = await callGeminiService(generateImage, finalPrompt, imageData);
     
     if (base64ImageData) {
       const objectUrl = `data:image/png;base64,${base64ImageData}`;
@@ -168,7 +188,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setAssetUrl(null);
     setAssetType(null);
-    const videoBlob = await runWithApiKey(generateVideo, prompt, imageData);
+    const videoBlob = await callGeminiService(generateVideo, prompt, imageData);
     if(videoBlob) {
       const objectUrl = URL.createObjectURL(videoBlob);
       setAssetUrl(objectUrl);
@@ -185,7 +205,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setAssetUrl(null);
     setAssetType(null);
-    const recipeText = await runWithApiKey(generateRecipe, prompt);
+    const recipeText = await callGeminiService(generateRecipe, prompt);
     if(recipeText) {
       setAssetUrl(recipeText);
       setAssetType('recipe');
@@ -201,7 +221,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setAssetUrl(null);
     setAssetType(null);
-    const translatedText = await runWithApiKey(translateText, prompt, targetLanguage, stylizeAndCorrect);
+    const translatedText = await callGeminiService(translateText, prompt, targetLanguage, stylizeAndCorrect);
     if(translatedText) {
       setAssetUrl(translatedText);
       setAssetType('translation');
@@ -238,7 +258,6 @@ const App: React.FC = () => {
     }
   };
 
-  const hasApiKey = !!apiKey.trim();
   const canGenerate = hasApiKey && (prompt.trim().length > 0 || (mode === 'image' && !!imageData && (removeText || addPerson)));
 
   const getPlaceholderText = () => {
@@ -251,19 +270,43 @@ const App: React.FC = () => {
     }
   };
 
+  if (!hasApiKey) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md text-center bg-gray-800/50 p-8 rounded-2xl shadow-2xl border border-gray-700/50">
+          <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent mb-4">
+            Welcome to Nano Banana
+          </h2>
+          <p className="text-gray-300 mb-6">
+            To use this application, please select a Gemini API key from a project with billing enabled.
+          </p>
+          <button
+            onClick={handleSelectKey}
+            className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
+          >
+            Select API Key
+          </button>
+          <a
+            href="https://ai.google.dev/gemini-api/docs/billing"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block mt-4 text-sm text-pink-400 hover:text-pink-300 transition-colors"
+          >
+            Learn more about billing
+          </a>
+          <div className="mt-4">
+            <ErrorDisplay message={error} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center p-4 sm:p-6 lg:p-8">
       <div className="w-full max-w-4xl">
         <Header />
         
-        <ApiKeyInput 
-          apiKeyInput={apiKeyInput}
-          setApiKeyInput={setApiKeyInput}
-          onSave={handleSaveKey}
-          onClear={handleClearKey}
-          disabled={isLoading}
-        />
-
         <div className="my-6 flex justify-center items-center bg-gray-800 p-1 rounded-full shadow-lg w-fit mx-auto flex-wrap">
           <button onClick={() => handleModeChange('image')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'image' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
             Image Generation

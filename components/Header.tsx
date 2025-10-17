@@ -8,7 +8,7 @@ export const Header: React.FC = () => (
       </span>
     </h1>
     <p className="mt-4 text-lg text-gray-300">
-      Bring your ideas to life with AI-powered tools. Enter your own API key to get started.
+      Bring your ideas to life with AI-powered image, video, and text generation tools.
     </p>
   </header>
 );

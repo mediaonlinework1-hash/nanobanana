@@ -1,20 +1,18 @@
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { ImageData } from '../types';
 
-const aiInstances = new Map<string, GoogleGenAI>();
-
-function getAiClient(apiKey: string): GoogleGenAI {
+// Always create a new client to ensure the latest API key from the environment is used.
+function getAiClient(): GoogleGenAI {
+  const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("Gemini API Key is missing. Please provide your API key in the input field.");
+    // This error will be caught by the calling function and trigger the key selection prompt.
+    throw new Error("API key not found. Please select an API key.");
   }
-  if (!aiInstances.has(apiKey)) {
-    aiInstances.set(apiKey, new GoogleGenAI({ apiKey }));
-  }
-  return aiInstances.get(apiKey)!;
+  return new GoogleGenAI({ apiKey });
 }
 
-export const generateImage = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
-  const ai = getAiClient(apiKey);
+export const generateImage = async (prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
+  const ai = getAiClient();
   const parts: any[] = [{ text: prompt }];
 
   if (imageData) {
@@ -30,7 +28,7 @@ export const generateImage = async (apiKey: string, prompt: string, imageData: I
     model: 'gemini-2.5-flash-image',
     contents: { parts },
     config: {
-      responseModalities: [Modality.IMAGE, Modality.TEXT],
+      responseModalities: [Modality.IMAGE],
     },
   });
 
@@ -49,8 +47,8 @@ export const generateImage = async (apiKey: string, prompt: string, imageData: I
 };
 
 
-export const analyzeImage = async (apiKey: string, imageData: ImageData): Promise<string> => {
-  const ai = getAiClient(apiKey);
+export const analyzeImage = async (imageData: ImageData): Promise<string> => {
+  const ai = getAiClient();
   const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
 
   const parts = [
@@ -76,8 +74,13 @@ export const analyzeImage = async (apiKey: string, imageData: ImageData): Promis
   return analysisText;
 };
 
-export const generateVideo = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<Blob> => {
-  const ai = getAiClient(apiKey);
+export const generateVideo = async (prompt: string, imageData: ImageData | null): Promise<Blob> => {
+  const ai = getAiClient();
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API key not found. Please select an API key.");
+  }
+  
   const request: {
     model: string;
     prompt: string;
@@ -120,8 +123,8 @@ export const generateVideo = async (apiKey: string, prompt: string, imageData: I
 };
 
 
-export const generateRecipe = async (apiKey: string, prompt: string): Promise<string> => {
-    const ai = getAiClient(apiKey);
+export const generateRecipe = async (prompt: string): Promise<string> => {
+    const ai = getAiClient();
     const fullPrompt = `Generate a recipe based on this prompt: "${prompt}". Your response must be a JSON object with the following schema: { "title": "string", "description": "string", "ingredients": ["string"], "instructions": ["string"] }. Make sure the description is brief.`;
 
     const response = await ai.models.generateContent({
@@ -179,8 +182,8 @@ export const generateRecipe = async (apiKey: string, prompt: string): Promise<st
     }
   };
   
-export const translateText = async (apiKey: string, text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
-  const ai = getAiClient(apiKey);
+export const translateText = async (text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
+  const ai = getAiClient();
   let prompt: string;
 
   if (stylize) {
