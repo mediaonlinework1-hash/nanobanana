@@ -29,7 +29,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
   const [assetType, setAssetType] = useState<'image' | 'video' | 'recipe' | 'translation' | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [addPerson, setAddPerson] = useState<boolean>(false);
   const [contextualPersonSuggestion, setContextualPersonSuggestion] = useState<string | null>(null);
@@ -155,7 +155,6 @@ const App: React.FC = () => {
     try {
       return await serviceCall(apiKey, ...args);
     } catch (err: unknown) {
-      let errorMessage = 'An unknown error occurred during the API call.';
       if (err instanceof Error) {
         const errText = err.message.toLowerCase();
         if (
@@ -166,13 +165,21 @@ const App: React.FC = () => {
           errText.includes("quota") ||
           errText.includes("resource_exhausted")
         ) {
-          errorMessage = "The provided API key has exceeded its quota or is invalid. Please clear it and enter a different key from a project with billing enabled.";
+          setError(
+            <>
+              The provided API key has exceeded its quota or is invalid. Please clear it and enter a different key from a project with{' '}
+              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
+                billing enabled
+              </a>.
+            </>
+          );
           handleClearKey();
         } else {
-           errorMessage = err.message;
+           setError(err.message);
         }
+      } else {
+        setError('An unknown error occurred during the API call.');
       }
-      setError(errorMessage);
       return null;
     }
   };

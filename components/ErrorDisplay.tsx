@@ -2,7 +2,7 @@
 import React from 'react';
 
 interface ErrorDisplayProps {
-  message: string | null;
+  message: React.ReactNode | null;
 }
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ message }) => {
