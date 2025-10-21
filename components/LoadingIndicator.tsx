@@ -28,6 +28,14 @@ const recipeLoadingMessages = [
   "Your recipe is almost ready to serve!",
 ];
 
+const linkRecipeLoadingMessages = [
+  "Navegando a la URL proporcionada...",
+  "Leyendo la receta de la página...",
+  "Identificando ingredientes y pasos...",
+  "Formateando la receta para ti...",
+  "Casi lista para servir...",
+];
+
 const translationLoadingMessages = [
   "Consulting with our AI linguists...",
   "Looking up words in a digital dictionary...",
@@ -37,8 +45,17 @@ const translationLoadingMessages = [
   "Your translation is almost ready!",
 ];
 
+const speechLoadingMessages = [
+  "Warming up the AI's vocal cords...",
+  "Consulting the pronunciation guide...",
+  "Converting text to sound waves...",
+  "Synthesizing speech...",
+  "Adding natural intonation...",
+  "Your audio is almost ready!",
+];
+
 interface LoadingIndicatorProps {
-  mode: 'image' | 'video' | 'recipe' | 'translation';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech';
 }
 
 export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
@@ -54,10 +71,18 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
       messages = recipeLoadingMessages;
       title = 'Preparing Your Recipe';
       break;
+    case 'linkRecipe':
+      messages = linkRecipeLoadingMessages;
+      title = 'Extrayendo tu Receta';
+      break;
     case 'translation':
         messages = translationLoadingMessages;
         title = 'Translating Your Text';
         break;
+    case 'speech':
+      messages = speechLoadingMessages;
+      title = 'Generating Your Audio';
+      break;
     case 'image':
     default:
       messages = imageLoadingMessages;

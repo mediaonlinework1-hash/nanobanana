@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText } from './services/geminiService';
+import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink } from './services/geminiService';
 import type { ImageData } from './types';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
@@ -8,7 +8,7 @@ import { LoadingIndicator } from './components/LoadingIndicator';
 import { AssetDisplay } from './components/AssetDisplay';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
-import { LanguageSelector } from './components/VideoPlayer';
+import { LanguageSelector, VoiceSelector } from './components/VideoPlayer';
 import { ApiKeyInput } from './components/ApiKeyInput';
 
 const PERSON_ACTIONS = [
@@ -21,20 +21,23 @@ const PERSON_ACTIONS = [
 ];
 
 const App: React.FC = () => {
-  const [mode, setMode] = useState<'image' | 'video' | 'recipe' | 'translation'>('image');
+  const [mode, setMode] = useState<'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech'>('image');
   const [prompt, setPrompt] = useState<string>('');
   const [similarity, setSimilarity] = useState<number | null>(null);
   const [removeText, setRemoveText] = useState<boolean>(false);
   const [imageData, setImageData] = useState<ImageData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
-  const [assetType, setAssetType] = useState<'image' | 'video' | 'recipe' | 'translation' | null>(null);
+  const [assetType, setAssetType] = useState<'image' | 'video' | 'recipe' | 'translation' | 'audio' | null>(null);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [addPerson, setAddPerson] = useState<boolean>(false);
   const [contextualPersonSuggestion, setContextualPersonSuggestion] = useState<string | null>(null);
   const [targetLanguage, setTargetLanguage] = useState<string>('Spanish');
   const [stylizeAndCorrect, setStylizeAndCorrect] = useState<boolean>(false);
+  const [selectedVoice, setSelectedVoice] = useState<string>('Kore');
+  const [sources, setSources] = useState<any[] | null>(null);
+  const [recipeImageUrl, setRecipeImageUrl] = useState<string | null>(null);
   
   const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -255,6 +258,34 @@ const App: React.FC = () => {
     }
     setIsLoading(false);
   };
+  
+  const handleRecipeFromLinkGeneration = async () => {
+    const url = prompt.trim();
+    if (!url) {
+      setError('Por favor, introduce una URL para extraer una receta.');
+      return;
+    }
+    try {
+      new URL(url);
+    } catch (_) {
+      setError('Por favor, introduce una URL válida.');
+      return;
+    }
+
+    setIsLoading(true);
+    setAssetUrl(null);
+    setAssetType(null);
+    setSources(null);
+    setRecipeImageUrl(null);
+    const result = await callGeminiService(generateRecipeFromLink, url);
+    if(result) {
+      setAssetUrl(result.formattedRecipe);
+      setAssetType('recipe');
+      setSources(result.sources || null);
+      setRecipeImageUrl(result.imageUrl || null);
+    }
+    setIsLoading(false);
+  };
 
   const handleTranslation = async () => {
     if (!prompt.trim()) {
@@ -272,6 +303,24 @@ const App: React.FC = () => {
     setIsLoading(false);
   };
 
+  const handleSpeechGeneration = async () => {
+    if (!prompt.trim()) {
+      setError('Please enter text to generate speech.');
+      return;
+    }
+    setIsLoading(true);
+    setAssetUrl(null);
+    setAssetType(null);
+    const base64Audio = await callGeminiService(generateSpeech, prompt, selectedVoice);
+    if(base64Audio) {
+      const audioBlob = createWavBlobFromBase64(base64Audio);
+      const objectUrl = URL.createObjectURL(audioBlob);
+      setAssetUrl(objectUrl);
+      setAssetType('audio');
+    }
+    setIsLoading(false);
+  };
+
   const handleGenerate = () => {
     if (mode === 'image') {
       handleImageGeneration();
@@ -279,12 +328,16 @@ const App: React.FC = () => {
       handleVideoGeneration();
     } else if (mode === 'recipe') {
       handleRecipeGeneration();
+    } else if (mode === 'linkRecipe') {
+      handleRecipeFromLinkGeneration();
     } else if (mode === 'translation') {
       handleTranslation();
+    } else if (mode === 'speech') {
+      handleSpeechGeneration();
     }
   };
   
-  const handleModeChange = (newMode: 'image' | 'video' | 'recipe' | 'translation') => {
+  const handleModeChange = (newMode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech') => {
     if (newMode !== mode) {
       setMode(newMode);
       setPrompt('');
@@ -298,6 +351,9 @@ const App: React.FC = () => {
       setContextualPersonSuggestion(null);
       setTargetLanguage('Spanish');
       setStylizeAndCorrect(false);
+      setSelectedVoice('Kore');
+      setSources(null);
+      setRecipeImageUrl(null);
     }
   };
 
@@ -308,7 +364,9 @@ const App: React.FC = () => {
       case 'image': return 'Your generated image will appear here.';
       case 'video': return 'Your generated video will appear here.';
       case 'recipe': return 'Your generated recipe will appear here.';
+      case 'linkRecipe': return 'Your recipe extracted from the URL will appear here.';
       case 'translation': return 'Your translation will appear here.';
+      case 'speech': return 'Your generated audio will appear here.';
       default: return 'Your generated asset will appear here.';
     }
   };
@@ -369,8 +427,14 @@ const App: React.FC = () => {
           <button onClick={() => handleModeChange('recipe')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'recipe' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
             Recipe Generation
           </button>
+           <button onClick={() => handleModeChange('linkRecipe')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'linkRecipe' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
+            Receta desde URL
+          </button>
           <button onClick={() => handleModeChange('translation')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'translation' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
             Translation
+          </button>
+          <button onClick={() => handleModeChange('speech')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'speech' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
+            Text-to-Speech
           </button>
         </div>
 
@@ -416,6 +480,15 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
+               {mode === 'speech' && (
+                <div className="space-y-4">
+                  <VoiceSelector
+                    selectedVoice={selectedVoice}
+                    setSelectedVoice={setSelectedVoice}
+                    disabled={isLoading}
+                  />
+                </div>
+               )}
             </div>
             
             <div className="flex items-center justify-center p-4 bg-gray-900/50 rounded-xl border border-dashed border-gray-600 min-h-[250px] lg:min-h-full">
@@ -423,7 +496,21 @@ const App: React.FC = () => {
                 <LoadingIndicator mode={mode} />
               ) : assetUrl ? (
                 <div className="flex flex-col items-center gap-4 w-full">
-                  <AssetDisplay src={assetUrl} alt={prompt} assetType={assetType} />
+                  <AssetDisplay src={assetUrl} alt={prompt} assetType={assetType} imageUrl={recipeImageUrl} />
+                  {sources && sources.length > 0 && (
+                    <div className="w-full text-left p-2 bg-gray-900/50 rounded-md">
+                      <h4 className="text-sm font-semibold text-gray-300 mb-1">Sources:</h4>
+                      <ul className="space-y-1">
+                        {sources.filter(source => source.web && source.web.uri).map((source, index) => (
+                          <li key={index} className="text-xs text-pink-400 truncate">
+                            <a href={source.web.uri} target="_blank" rel="noopener noreferrer" className="hover:underline" title={source.web.title || source.web.uri}>
+                              - {source.web.title || source.web.uri}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <DownloadButton assetUrl={assetUrl} assetType={assetType} />
                 </div>
               ) : (

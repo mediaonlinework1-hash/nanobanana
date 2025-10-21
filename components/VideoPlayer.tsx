@@ -41,3 +41,37 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ targetLangua
     </select>
   </div>
 );
+
+interface VoiceSelectorProps {
+  selectedVoice: string;
+  setSelectedVoice: (voice: string) => void;
+  disabled: boolean;
+}
+
+const VOICES = [
+  { id: 'Kore', name: 'Kore (Female)' },
+  { id: 'Puck', name: 'Puck (Male)' },
+  { id: 'Charon', name: 'Charon (Male)' },
+  { id: 'Fenrir', name: 'Fenrir (Male)' },
+  { id: 'Zephyr', name: 'Zephyr (Female)' },
+];
+
+export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, setSelectedVoice, disabled }) => (
+  <div className="w-full">
+    <label htmlFor="voice-select" className="block text-sm font-medium text-gray-300 mb-2">
+      2. Select a voice
+    </label>
+    <select
+      id="voice-select"
+      value={selectedVoice}
+      onChange={(e) => setSelectedVoice(e.target.value)}
+      disabled={disabled}
+      className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 disabled:opacity-50"
+      aria-label="Select voice for text-to-speech"
+    >
+      {VOICES.map(voice => (
+        <option key={voice.id} value={voice.id}>{voice.name}</option>
+      ))}
+    </select>
+  </div>
+);

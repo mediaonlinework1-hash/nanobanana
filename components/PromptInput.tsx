@@ -12,7 +12,7 @@ interface PromptInputProps {
   contextualPersonSuggestion: string | null;
   addPerson: boolean;
   setAddPerson: (addPerson: boolean) => void;
-  mode: 'image' | 'video' | 'recipe' | 'translation';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech';
 }
 
 const SIMILARITY_SUGGESTIONS = [25, 50, 75, 100];
@@ -59,7 +59,9 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   const getLabelText = () => {
     switch (mode) {
       case 'recipe': return '1. Describe the recipe you want to generate';
+      case 'linkRecipe': return '1. Pega la URL de la receta';
       case 'translation': return '1. Enter the text you want to translate';
+      case 'speech': return '1. Enter the text to convert to speech';
       default: return `1. Describe the ${mode} you want to create or edit`;
     }
   };
@@ -69,7 +71,9 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       case 'image': return "e.g., A majestic lion wearing a crown, sitting on a throne";
       case 'video': return "e.g., A cinematic shot of a futuristic city at night, rain-slicked streets reflecting neon signs";
       case 'recipe': return "e.g., A quick and easy recipe for vegan pancakes";
+      case 'linkRecipe': return "ej., https://www.recetasgratis.net/...";
       case 'translation': return "e.g., Hello, how are you today?";
+      case 'speech': return "e.g., The quick brown fox jumps over the lazy dog.";
       default: return "";
     }
   };
@@ -157,7 +161,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
       <textarea
         id="prompt"
-        rows={mode === 'recipe' || mode === 'translation' ? 8 : 4}
+        rows={mode === 'recipe' || mode === 'translation' || mode === 'speech' ? 8 : (mode === 'linkRecipe' ? 3 : 4)}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         disabled={disabled}

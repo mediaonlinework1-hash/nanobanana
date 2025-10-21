@@ -11,6 +11,55 @@ function getAiClient(apiKey: string): GoogleGenAI {
   return new GoogleGenAI({ apiKey: finalApiKey });
 }
 
+// Helper to decode base64
+const decode = (base64: string) => {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+};
+
+// Helper to create a WAV file blob from raw PCM data
+const createWavBlob = (pcmData: Int16Array, sampleRate: number, numChannels: number): Blob => {
+    const header = new ArrayBuffer(44);
+    const view = new DataView(header);
+    
+    const writeString = (view: DataView, offset: number, str: string) => {
+        for (let i = 0; i < str.length; i++) {
+            view.setUint8(offset + i, str.charCodeAt(i));
+        }
+    };
+
+    const dataSize = pcmData.length * 2;
+    
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+    
+    return new Blob([view, pcmData], { type: 'audio/wav' });
+};
+
+export const createWavBlobFromBase64 = (base64Audio: string): Blob => {
+  const pcmBytes = decode(base64Audio);
+  const pcmData = new Int16Array(pcmBytes.buffer);
+  // Gemini TTS uses 24000Hz sample rate, mono channel
+  return createWavBlob(pcmData, 24000, 1);
+};
+
+
 export const generateImage = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
   const ai = getAiClient(apiKey);
   const parts: any[] = [{ text: prompt }];
@@ -181,6 +230,71 @@ export const generateRecipe = async (apiKey: string, prompt: string): Promise<st
         return recipeJsonString;
     }
   };
+
+  export const generateRecipeFromLink = async (apiKey: string, url: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
+    const ai = getAiClient(apiKey);
+    const fullPrompt = `Using your search tool, access the following URL and extract the recipe details: "${url}".
+    Find the main image associated with the recipe and include its public URL.
+    Format your response as a single, clean JSON object with the following structure: { "title": "string", "description": "string", "imageUrl": "string", "ingredients": ["string"], "instructions": ["string"] }.
+    Ensure the description is brief. If you cannot find a recipe at the URL, return a JSON object with an "error" field, like this: { "error": "Recipe not found." }.
+    Your response must contain ONLY the JSON object, with no other text or markdown formatting before or after it.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: fullPrompt,
+      config: {
+        tools: [{googleSearch: {}}],
+      },
+    });
+
+    let recipeJsonString = response.text;
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+
+    if (!recipeJsonString) {
+      throw new Error("Recipe extraction failed to produce a result.");
+    }
+    
+    if (recipeJsonString.startsWith('```json')) {
+      recipeJsonString = recipeJsonString.slice(7, -3).trim();
+    } else if (recipeJsonString.startsWith('```')) {
+      recipeJsonString = recipeJsonString.slice(3, -3).trim();
+    }
+    
+    try {
+        const recipe = JSON.parse(recipeJsonString);
+
+        if (recipe.error) {
+            throw new Error(`Could not get recipe from URL: ${recipe.error}`);
+        }
+
+        if (!recipe.title || !recipe.ingredients || !recipe.instructions) {
+            throw new Error("Extracted data is not a valid recipe. Please try another URL.");
+        }
+        
+        const imageUrl = recipe.imageUrl;
+        let formattedRecipe = `## ${recipe.title}\n\n`;
+        if (recipe.description) {
+          formattedRecipe += `${recipe.description}\n\n`;
+        }
+        formattedRecipe += `### Ingredients\n`;
+        recipe.ingredients.forEach((ingredient: string) => {
+          formattedRecipe += `- ${ingredient}\n`;
+        });
+        
+        formattedRecipe += `\n### Instructions\n`;
+        recipe.instructions.forEach((instruction: string, index: number) => {
+          formattedRecipe += `${index + 1}. ${instruction}\n`;
+        });
+
+        return { formattedRecipe, sources, imageUrl };
+    } catch (e) {
+        console.error("Failed to parse recipe JSON from link:", recipeJsonString, e);
+        if (e instanceof Error && (e.message.startsWith("Could not get recipe") || e.message.startsWith("Extracted data is not"))) {
+            throw e; 
+        }
+        return { formattedRecipe: `Could not format the recipe, but here is the raw text:\n\n${recipeJsonString}`, sources, imageUrl: undefined };
+    }
+  };
   
 export const translateText = async (apiKey: string, text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
   const ai = getAiClient(apiKey);
@@ -223,4 +337,33 @@ export const translateText = async (apiKey: string, text: string, targetLanguage
   }
 
   return translatedText;
+};
+
+export const generateSpeech = async (apiKey: string, text: string, voice: string): Promise<string | undefined> => {
+    const ai = getAiClient(apiKey);
+
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: text }] }],
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: voice },
+                },
+            },
+        },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (base64Audio) {
+        return base64Audio;
+    }
+
+    const textResponse = response.text;
+    if (textResponse) {
+        throw new Error(`Speech generation failed: ${textResponse}`);
+    }
+
+    throw new Error("Speech generation failed to produce audio.");
 };
