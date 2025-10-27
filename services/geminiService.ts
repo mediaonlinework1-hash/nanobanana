@@ -77,7 +77,7 @@ export const generateImage = async (apiKey: string, prompt: string, imageData: I
     model: 'gemini-2.5-flash-image',
     contents: { parts },
     config: {
-      responseModalities: [Modality.IMAGE],
+        responseModalities: [Modality.IMAGE],
     },
   });
 
@@ -93,6 +93,81 @@ export const generateImage = async (apiKey: string, prompt: string, imageData: I
   }
 
   throw new Error("Image generation failed to produce an image.");
+};
+
+export const generateProductShot = async (apiKey: string, prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null): Promise<string[] | undefined> => {
+    const ai = getAiClient(apiKey);
+    
+    let finalPrompt = `You are an expert AI product photographer. The user has provided one or more images of a SINGLE product, likely from different angles. Your task is to use all these images to get a complete understanding of the product's shape, texture, and details. Then, create professional, high-quality product shots suitable for an e-commerce website.
+
+Analyze the product images to identify all distinct products (there should only be one main product, but it might come in multiple pieces). For EACH product, generate a separate, individual image. If there is only one product, generate one image.
+
+For each generated image, follow these rules:
+1.  Isolate the product completely from its original background.
+2.  Place the product on a clean, seamless, neutral background (e.g., pure white #FFFFFF).
+3.  Ensure professional studio lighting that highlights details without harsh shadows.
+4.  Add a soft, realistic shadow or subtle reflection beneath the product.
+5.  The final output image(s) should be high-resolution, photorealistic, and well-composed.
+6.  Do not add any text, watermarks, or other elements.`;
+    
+    const parts: any[] = [];
+
+    productImages.forEach(img => {
+      parts.push({
+        inlineData: {
+          data: img.imageBytes,
+          mimeType: img.mimeType,
+        },
+      });
+    });
+
+
+    if (inspirationImageData) {
+      finalPrompt += `
+
+IMPORTANT INSTRUCTION: A separate image has been provided as an INSPIRATION image. You MUST use this inspiration image as a strong reference for the mood, lighting, style, and composition of the final product shot(s). The goal is to make the new product shots look like they belong in the same photoshoot as the inspiration image.`;
+      
+      parts.push({
+            inlineData: {
+                data: inspirationImageData.imageBytes,
+                mimeType: inspirationImageData.mimeType,
+            },
+      });
+    }
+    
+    finalPrompt += `
+${prompt ? `
+The user has also provided these specific instructions: "${prompt}". Incorporate these into your generation. For example, if they ask for a "closer image", provide a detailed close-up shot of the product.
+` : ''}
+Your output must contain ONLY the generated image(s).`;
+
+    parts.push({ text: finalPrompt });
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+    });
+
+    const imageDatas: string[] = [];
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData?.data) {
+            imageDatas.push(part.inlineData.data);
+        }
+    }
+
+    if (imageDatas.length > 0) {
+        return imageDatas;
+    }
+
+    const textResponse = response.text;
+    if (textResponse) {
+        throw new Error(`Product shot generation failed: ${textResponse}`);
+    }
+
+    throw new Error("Product shot generation failed to produce any images.");
 };
 
 

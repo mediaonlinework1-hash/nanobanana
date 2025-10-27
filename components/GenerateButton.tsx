@@ -3,7 +3,7 @@ import React from 'react';
 interface GenerateButtonProps {
   onClick: () => void;
   disabled: boolean;
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 }
 
 export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disabled, mode }) => {
@@ -22,12 +22,12 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
   } else if (mode === 'linkRecipe') {
     loadingText = 'Extrayendo...';
     buttonText = 'Extraer Receta';
-  } else if (mode === 'translation') {
-    loadingText = 'Translating...';
-    buttonText = 'Translate Text';
   } else if (mode === 'speech') {
     loadingText = 'Generating...';
     buttonText = 'Generate Speech';
+  } else if (mode === 'productShot') {
+    loadingText = 'Generando...';
+    buttonText = 'Generar Foto de Producto';
   }
 
 
@@ -44,7 +44,7 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
 
 interface DownloadButtonProps {
   assetUrl: string | null;
-  assetType: 'image' | 'video' | 'recipe' | 'translation' | 'audio' | null;
+  assetType: 'image' | 'video' | 'recipe' | 'translation' | 'audio' | 'productShot' | null;
 }
 
 export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetType }) => {
@@ -67,8 +67,7 @@ export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetT
   } else if (assetType === 'audio') {
       downloadName = 'nano-banana-speech.wav';
       buttonText = 'Download Audio';
-  }
-  else { // image is default
+  } else { // image is default
       downloadName = 'nano-banana-art.png';
       buttonText = 'Download Image';
   }

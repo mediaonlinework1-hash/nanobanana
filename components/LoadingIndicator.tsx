@@ -54,8 +54,18 @@ const speechLoadingMessages = [
   "Your audio is almost ready!",
 ];
 
+const productShotLoadingMessages = [
+  "Consultando al fotógrafo de productos IA...",
+  "Montando el estudio virtual...",
+  "Ajustando la iluminación...",
+  "Capturando la toma perfecta...",
+  "Retocando la imagen...",
+  "¡Tus fotos de producto están casi listas!",
+];
+
+
 interface LoadingIndicatorProps {
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech' | 'productShot';
 }
 
 export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
@@ -82,6 +92,10 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
     case 'speech':
       messages = speechLoadingMessages;
       title = 'Generating Your Audio';
+      break;
+    case 'productShot':
+      messages = productShotLoadingMessages;
+      title = 'Creando tu Foto de Producto';
       break;
     case 'image':
     default:

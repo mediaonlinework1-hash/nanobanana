@@ -12,15 +12,17 @@ interface PromptInputProps {
   contextualPersonSuggestion: string | null;
   addPerson: boolean;
   setAddPerson: (addPerson: boolean) => void;
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 }
 
 const SIMILARITY_SUGGESTIONS = [25, 50, 75, 100];
 const BACKGROUND_SUGGESTIONS = [
-  "en una casa",
-  "en una ciudad futurista",
-  "en un bosque mágico",
-  "en una playa al atardecer",
+  "on a beach",
+  "in a futuristic city",
+  "in a magical forest",
+  "in a cozy cafe",
+  "on a mountain top",
+  "underwater",
 ];
 
 
@@ -60,9 +62,10 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     switch (mode) {
       case 'recipe': return '1. Describe the recipe you want to generate';
       case 'linkRecipe': return '1. Pega la URL de la receta';
-      case 'translation': return '1. Enter the text you want to translate';
       case 'speech': return '1. Enter the text to convert to speech';
-      default: return `1. Describe the ${mode} you want to create or edit`;
+      case 'image': return `1. Describe the image you want to create or edit`;
+      case 'productShot': return `1. Describe a specific request (optional)`;
+      default: return `1. Describe the ${mode} you want to create`;
     }
   };
   
@@ -72,8 +75,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       case 'video': return "e.g., A cinematic shot of a futuristic city at night, rain-slicked streets reflecting neon signs";
       case 'recipe': return "e.g., A quick and easy recipe for vegan pancakes";
       case 'linkRecipe': return "ej., https://www.recetasgratis.net/...";
-      case 'translation': return "e.g., Hello, how are you today?";
       case 'speech': return "e.g., The quick brown fox jumps over the lazy dog.";
+      case 'productShot': return "e.g., I want a slightly closer image";
       default: return "";
     }
   };
@@ -113,14 +116,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       {mode === 'image' && (
         <>
           <div className="flex items-center flex-wrap gap-2 mb-3">
-            <span className="text-xs text-gray-400 font-medium">Sugerencias de fondo:</span>
+            <span className="text-xs text-gray-400 font-medium">Background Suggestions:</span>
             {BACKGROUND_SUGGESTIONS.map((suggestion) => (
               <button
                 key={suggestion}
                 onClick={() => handleTextSuggestionClick(suggestion)}
                 disabled={disabled}
                 className="px-3 py-1 text-xs font-medium rounded-full transition-colors duration-200 bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label={`Añadir fondo: ${suggestion}`}
+                aria-label={`Add background: ${suggestion}`}
               >
                 {suggestion}
               </button>
@@ -128,7 +131,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           </div>
 
           <div className="flex items-center flex-wrap gap-2 mb-3">
-            <span className="text-xs text-gray-400 font-medium">Acciones rápidas:</span>
+            <span className="text-xs text-gray-400 font-medium">Quick Actions:</span>
             <button
               onClick={() => setRemoveText(!removeText)}
               disabled={disabled}
@@ -140,7 +143,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
               aria-pressed={removeText}
               aria-label="Toggle remove text from image"
             >
-              Eliminar texto
+              Remove Text
             </button>
             <button
               onClick={() => setAddPerson(!addPerson)}
@@ -153,7 +156,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
               aria-pressed={addPerson}
               aria-label="Toggle adding a person to the image"
             >
-              {isAnalyzing ? 'Analizando...' : 'Añadir persona'}
+              {isAnalyzing ? 'Analyzing...' : 'Add Person'}
             </button>
           </div>
         </>
@@ -161,7 +164,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
       <textarea
         id="prompt"
-        rows={mode === 'recipe' || mode === 'translation' || mode === 'speech' ? 8 : (mode === 'linkRecipe' ? 3 : 4)}
+        rows={mode === 'recipe' || mode === 'speech' ? 8 : (mode === 'linkRecipe' || mode === 'productShot' ? 3 : 4)}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         disabled={disabled}
