@@ -11,6 +11,7 @@ import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector, VoiceSelector } from './components/VideoPlayer';
 import { Modal } from './components/Modal';
+import { ApiKeyInput } from './components/ApiKeyInput';
 
 const PERSON_ACTIONS = [
   "caminando",
@@ -24,6 +25,8 @@ const PERSON_ACTIONS = [
 type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 
 const App: React.FC = () => {
+  const [apiKey, setApiKey] = useState<string | null>(() => localStorage.getItem('gemini-api-key'));
+  const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [mode, setMode] = useState<AppMode>('image');
   const [prompt, setPrompt] = useState<string>('');
   const [similarity, setSimilarity] = useState<number | null>(null);
@@ -45,12 +48,25 @@ const App: React.FC = () => {
   const [recipeImageUrl, setRecipeImageUrl] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   
-  // State for integrated translation
   const [textToTranslate, setTextToTranslate] = useState<string>('');
   const [translationResult, setTranslationResult] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
 
   const previousAssetUrls = useRef<string[]>([]);
+
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      const key = apiKeyInput.trim();
+      localStorage.setItem('gemini-api-key', key);
+      setApiKey(key);
+      setApiKeyInput('');
+    }
+  };
+
+  const handleClearApiKey = () => {
+    localStorage.removeItem('gemini-api-key');
+    setApiKey(null);
+  };
 
   useEffect(() => {
     previousAssetUrls.current.forEach(url => {
@@ -96,7 +112,11 @@ const App: React.FC = () => {
     serviceCall: (providerConfig: ProviderConfig, ...args: any[]) => Promise<T>, 
     ...args: any[]
   ): Promise<T | null> => {
-    const providerConfig: ProviderConfig = { provider: 'gemini', apiKey: 'aistudio_managed_key' };
+    if (!apiKey) {
+        setError("API Key is not set.");
+        return null;
+    }
+    const providerConfig: ProviderConfig = { provider: 'gemini', apiKey };
 
     setError(null);
     try {
@@ -119,7 +139,8 @@ const App: React.FC = () => {
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
                 billing enabled
               </a>{' '}
-              is required. Please check your project configuration.
+              is required. Please check your project configuration.{' '}
+              <button onClick={handleClearApiKey} className="font-bold underline hover:text-red-200 ml-2">Enter a different key.</button>
             </>
           );
         } else {
@@ -411,6 +432,31 @@ const App: React.FC = () => {
     );
   };
 
+  if (!apiKey) {
+    return (
+        <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-2xl text-center">
+            <Header />
+            <div className="mt-8 text-gray-300 space-y-4">
+                <p>
+                    To use this application, you need a Google Gemini API key. Some features, like video generation, may require a key from a project with billing enabled.
+                </p>
+                <p>
+                    Your API key is stored securely in your browser's local storage and is only sent to Google.
+                </p>
+            </div>
+            <ApiKeyInput
+              apiKeyInput={apiKeyInput}
+              setApiKeyInput={setApiKeyInput}
+              onSave={handleSaveApiKey}
+              onClear={() => setApiKeyInput('')}
+              providerName="Google Gemini"
+              getKeyUrl="https://ai.google.dev/gemini-api/docs/api-key"
+            />
+          </div>
+        </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center p-4 sm:p-6 lg:p-8">
@@ -620,6 +666,9 @@ const App: React.FC = () => {
                 <div className="flex-grow w-full">
                   <GenerateButton onClick={handleGenerate} disabled={isLoading || isTranslating || !canGenerate} mode={mode} />
                 </div>
+                <button onClick={handleClearApiKey} className="text-sm text-gray-400 hover:text-white transition-colors py-2 px-4 rounded-full hover:bg-gray-700/50">
+                  Change API Key
+                </button>
             </div>
           </div>
         </main>
