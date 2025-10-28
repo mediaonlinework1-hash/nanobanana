@@ -10,7 +10,6 @@ import { AssetDisplay } from './components/AssetDisplay';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector, VoiceSelector } from './components/VideoPlayer';
-import { ApiKeyInput } from './components/ApiKeyInput';
 import { Modal } from './components/Modal';
 
 const PERSON_ACTIONS = [
@@ -21,26 +20,6 @@ const PERSON_ACTIONS = [
   "bailando",
   "tomando una foto",
 ];
-
-const OPENROUTER_MODELS = [
-    { id: 'google/gemini-flash-1.5', name: 'Google: Gemini Flash 1.5' },
-    { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o Mini' },
-    { id: 'anthropic/claude-3-haiku', name: 'Anthropic: Claude 3 Haiku' },
-    { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B Instruct' },
-    { id: 'meta-llama/llama-3-8b-instruct', name: 'Meta: Llama 3 8B Instruct' },
-];
-
-const OPENROUTER_IMAGE_MODELS = [
-    { id: 'openai/dall-e-3', name: 'OpenAI: DALL-E 3' },
-    { id: 'playgroundai/playground-v2.5', name: 'Playground v2.5' },
-    { id: 'stabilityai/stable-diffusion-3', name: 'Stable Diffusion 3' },
-];
-
-const OPENROUTER_VISION_MODELS = [
-    { id: 'openai/gpt-4o', name: 'OpenAI: GPT-4o' },
-    { id: 'google/gemini-pro-vision', name: 'Google: Gemini Pro Vision' },
-];
-
 
 type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 
@@ -71,42 +50,7 @@ const App: React.FC = () => {
   const [translationResult, setTranslationResult] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
 
-  // API Key Management
-  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>('gemini');
-  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState<string>('');
-  const [hasGeminiApiKey, setHasGeminiApiKey] = useState<boolean>(false);
-  const [openRouterApiKeyInput, setOpenRouterApiKeyInput] = useState<string>('');
-  const [hasOpenRouterApiKey, setHasOpenRouterApiKey] = useState<boolean>(false);
-  const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState(OPENROUTER_MODELS[0].id);
-  const [selectedOpenRouterImageModel, setSelectedOpenRouterImageModel] = useState(OPENROUTER_IMAGE_MODELS[0].id);
-  const [selectedOpenRouterVisionModel, setSelectedOpenRouterVisionModel] = useState(OPENROUTER_VISION_MODELS[0].id);
-  const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
-
   const previousAssetUrls = useRef<string[]>([]);
-
-  const hasActiveApiKey = (apiProvider === 'gemini' && hasGeminiApiKey) || (apiProvider === 'openrouter' && hasOpenRouterApiKey);
-
-  useEffect(() => {
-    const isStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
-    setIsStudioEnvironment(isStudio);
-    
-    const storedGeminiKey = localStorage.getItem('gemini-api-key');
-    if (storedGeminiKey) {
-      setHasGeminiApiKey(true);
-    } else if (isStudio) {
-      window.aistudio.hasSelectedApiKey().then(keySelected => {
-        if (keySelected) {
-           localStorage.setItem('gemini-api-key', 'aistudio_managed_key');
-           setHasGeminiApiKey(true);
-        }
-      });
-    }
-
-    const storedOpenRouterKey = localStorage.getItem('openrouter-api-key');
-    if (storedOpenRouterKey) {
-        setHasOpenRouterApiKey(true);
-    }
-  }, []);
 
   useEffect(() => {
     previousAssetUrls.current.forEach(url => {
@@ -126,7 +70,7 @@ const App: React.FC = () => {
   }, [assetUrls]);
 
   useEffect(() => {
-    if (mode !== 'image' || !hasActiveApiKey) {
+    if (mode !== 'image') {
       setContextualPersonSuggestion(null);
       setIsAnalyzing(false);
       return;
@@ -135,104 +79,24 @@ const App: React.FC = () => {
       if (singleImageData) {
         setIsAnalyzing(true);
         setContextualPersonSuggestion(null);
-        setError(null);
-        try {
-          const suggestion = await callApiService(analyzeImage, singleImageData);
-          if (suggestion) {
-              setContextualPersonSuggestion(suggestion);
-          }
-        } catch (e) {
-          console.error("Image analysis failed:", e);
-          if (e instanceof Error) {
-            if (e.message.includes("API key not found") || e.message.includes("API key is invalid")) {
-                setError("Your API key is invalid or missing permissions. Please enter a valid key.");
-                handleClearKey();
-            }
-          }
-          setContextualPersonSuggestion(null); 
-        } finally {
-          setIsAnalyzing(false);
+        const suggestion = await callApiService(analyzeImage, singleImageData);
+        if (suggestion) {
+            setContextualPersonSuggestion(suggestion);
         }
+        setIsAnalyzing(false);
       } else {
         setContextualPersonSuggestion(null);
         setIsAnalyzing(false);
       }
     };
     analyze();
-  }, [singleImageData, mode, hasActiveApiKey, apiProvider, selectedOpenRouterModel]);
+  }, [singleImageData, mode]);
   
-  const handleSaveGeminiKey = () => {
-    if (geminiApiKeyInput.trim()) {
-      localStorage.setItem('gemini-api-key', geminiApiKeyInput.trim());
-      setHasGeminiApiKey(true);
-      setError(null);
-    } else {
-      setError("Please enter a valid API key.");
-    }
-  };
-
-  const handleSaveOpenRouterKey = () => {
-    if (openRouterApiKeyInput.trim()) {
-      localStorage.setItem('openrouter-api-key', openRouterApiKeyInput.trim());
-      setHasOpenRouterApiKey(true);
-      setError(null);
-    } else {
-      setError("Please enter a valid API key.");
-    }
-  };
-
-  const handleClearKey = () => {
-    if (apiProvider === 'gemini') {
-        localStorage.removeItem('gemini-api-key');
-        setHasGeminiApiKey(false);
-        setGeminiApiKeyInput('');
-    } else {
-        localStorage.removeItem('openrouter-api-key');
-        setHasOpenRouterApiKey(false);
-        setOpenRouterApiKeyInput('');
-    }
-  };
-
-  const handleSelectKeyFromStudio = async () => {
-    setError(null);
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-      await window.aistudio.openSelectKey();
-      localStorage.setItem('gemini-api-key', 'aistudio_managed_key');
-      setHasGeminiApiKey(true);
-    } else {
-      setError("API Key selection is unavailable in this environment.");
-    }
-  };
-
   const callApiService = async <T,>(
     serviceCall: (providerConfig: ProviderConfig, ...args: any[]) => Promise<T>, 
     ...args: any[]
   ): Promise<T | null> => {
-    let providerConfig: ProviderConfig;
-
-    if (apiProvider === 'gemini') {
-        const apiKey = localStorage.getItem('gemini-api-key');
-        if (!apiKey) {
-            setError("Please provide a Gemini API key to proceed.");
-            setHasGeminiApiKey(false);
-            return null;
-        }
-        providerConfig = { provider: 'gemini', apiKey };
-    } else { // openrouter
-        const apiKey = localStorage.getItem('openrouter-api-key');
-        if (!apiKey) {
-            setError("Please provide an OpenRouter API key to proceed.");
-            setHasOpenRouterApiKey(false);
-            return null;
-        }
-        providerConfig = { 
-          provider: 'openrouter', 
-          apiKey, 
-          model: selectedOpenRouterModel,
-          imageModel: selectedOpenRouterImageModel,
-          visionModel: selectedOpenRouterVisionModel,
-        };
-    }
+    const providerConfig: ProviderConfig = { provider: 'gemini', apiKey: 'aistudio_managed_key' };
 
     setError(null);
     try {
@@ -251,13 +115,13 @@ const App: React.FC = () => {
         ) {
           setError(
             <>
-              The provided API key has exceeded its quota, is invalid, or lacks permissions. Please clear it and try another. For Gemini video, a key from a project with{' '}
+              The API key has exceeded its quota, is invalid, or lacks permissions. For Gemini video, a key from a project with{' '}
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
                 billing enabled
-              </a> is required.
+              </a>{' '}
+              is required. Please check your project configuration.
             </>
           );
-          handleClearKey();
         } else {
            setError(err.message);
         }
@@ -464,12 +328,7 @@ const App: React.FC = () => {
       setContextualPersonSuggestion(null);
       setTargetLanguage('Spanish');
       setStylizeAndCorrect(false);
-      // Reset voice to a default that exists for both providers
-      if (apiProvider === 'gemini') {
-        setSelectedVoice('Kore');
-      } else {
-        setSelectedVoice('alloy');
-      }
+      setSelectedVoice('Kore');
       setSources(null);
       setRecipeImageUrl(null);
       setTextToTranslate('');
@@ -517,19 +376,11 @@ const App: React.FC = () => {
 
   const baseCanGenerate = prompt.trim().length > 0;
   
-  const isTextOnlyMode = mode === 'recipe' || mode === 'linkRecipe';
-  
-  const isProviderCompatibleWithMode = () => {
-    if (apiProvider === 'gemini') return true;
-    if (mode === 'video') return false;
-    return true;
-  }
-
   const imageGenCanGenerate = mode === 'image' && (prompt.trim().length > 0 || (!!singleImageData && (removeText || addPerson || similarity !== null)));
   const productShotCanGenerate = mode === 'productShot' && productImages.length > 0;
   const linkRecipeCanGenerate = mode === 'linkRecipe' && prompt.trim().length > 0;
 
-  const canGenerate = hasActiveApiKey && isProviderCompatibleWithMode() && (
+  const canGenerate = (
       (mode === 'image' && imageGenCanGenerate) ||
       (mode === 'recipe' && baseCanGenerate) ||
       (mode === 'video' && baseCanGenerate) ||
@@ -550,144 +401,11 @@ const App: React.FC = () => {
     }
   };
 
-  if (!hasActiveApiKey) {
-    const ModelSelector = ({label, value, onChange, models}: {label: string, value: string, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void, models: {id: string, name: string}[]}) => (
-        <div className="my-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50">
-            <label htmlFor={`${label}-select`} className="block text-sm font-medium text-gray-300 mb-2">
-                {label}
-            </label>
-            <select
-                id={`${label}-select`}
-                value={value}
-                onChange={onChange}
-                className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-md focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors duration-200"
-            >
-                {models.map(model => (
-                    <option key={model.id} value={model.id}>{model.name}</option>
-                ))}
-            </select>
-        </div>
-    );
-
-    return (
-      <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-lg text-center bg-gray-800/50 p-8 rounded-2xl shadow-2xl border border-gray-700/50">
-          <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent mb-4">
-            Welcome to Nano Banana
-          </h2>
-          <p className="text-gray-300 mb-6">
-            To use this application, please provide an API key from your preferred provider.
-          </p>
-          
-          <div className="my-6">
-              <div className="flex bg-gray-900/50 p-1 rounded-full border border-gray-700">
-                  <button 
-                      onClick={() => setApiProvider('gemini')}
-                      className={`w-1/2 py-2 text-sm font-semibold rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${apiProvider === 'gemini' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}
-                  >
-                      Google Gemini
-                  </button>
-                  <button 
-                      onClick={() => setApiProvider('openrouter')}
-                      className={`w-1/2 py-2 text-sm font-semibold rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${apiProvider === 'openrouter' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}
-                  >
-                      OpenRouter
-                  </button>
-              </div>
-          </div>
-
-          {apiProvider === 'gemini' ? (
-            <>
-              <p className="text-sm text-yellow-400/80 mb-6 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
-                <strong>Important:</strong> For full functionality, especially for video generation, please use an API key from a Google Cloud project with{' '}
-                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-yellow-300">
-                  billing enabled
-                </a>. Free-tier keys may have limited access and quotas.
-              </p>
-              <ApiKeyInput
-                providerName="Gemini"
-                getKeyUrl="https://ai.google.dev/gemini-api/docs/api-key"
-                apiKeyInput={geminiApiKeyInput}
-                setApiKeyInput={setGeminiApiKeyInput}
-                onSave={handleSaveGeminiKey}
-                onClear={handleClearKey}
-              />
-              <div className="my-4">
-                <ErrorDisplay message={error} />
-              </div>
-              {isStudioEnvironment && (
-                <>
-                  <div className="relative flex items-center justify-center my-6">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-gray-600"></div>
-                    </div>
-                    <div className="relative px-2 bg-gray-800 text-sm text-gray-400">OR</div>
-                  </div>
-                  <button
-                    onClick={handleSelectKeyFromStudio}
-                    className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
-                  >
-                    Select API Key from AI Studio
-                  </button>
-                </>
-              )}
-            </>
-          ) : (
-             <>
-                <ApiKeyInput
-                    providerName="OpenRouter"
-                    getKeyUrl="https://openrouter.ai/keys"
-                    apiKeyInput={openRouterApiKeyInput}
-                    setApiKeyInput={setOpenRouterApiKeyInput}
-                    onSave={handleSaveOpenRouterKey}
-                    onClear={handleClearKey}
-                />
-                <ModelSelector 
-                    label="Select a Text Model"
-                    value={selectedOpenRouterModel}
-                    onChange={(e) => setSelectedOpenRouterModel(e.target.value)}
-                    models={OPENROUTER_MODELS}
-                />
-                <ModelSelector 
-                    label="Select an Image Generation Model"
-                    value={selectedOpenRouterImageModel}
-                    onChange={(e) => setSelectedOpenRouterImageModel(e.target.value)}
-                    models={OPENROUTER_IMAGE_MODELS}
-                />
-                <ModelSelector 
-                    label="Select a Vision Model (for Analysis)"
-                    value={selectedOpenRouterVisionModel}
-                    onChange={(e) => setSelectedOpenRouterVisionModel(e.target.value)}
-                    models={OPENROUTER_VISION_MODELS}
-                />
-               <div className="mt-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg text-center">
-                 <p className="text-blue-300 text-sm">
-                   OpenRouter can be used for most features.
-                   <br/><br/>
-                   <strong>Video Generation</strong> is only available with the Google Gemini provider.
-                 </p>
-               </div>
-                <div className="my-4">
-                    <ErrorDisplay message={error} />
-                </div>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const isCurrentModeIncompatibleWithProvider = !isProviderCompatibleWithMode();
-  
-  const ModeButton = ({ targetMode, label, disabled = false }: { targetMode: AppMode; label: string, disabled?: boolean }) => {
-    const isIncompatible = disabled || (apiProvider === 'openrouter' && targetMode === 'video');
-    const title = isIncompatible ? `This mode is only available with the Gemini API` : `Switch to ${label} mode`;
+  const ModeButton = ({ targetMode, label }: { targetMode: AppMode; label: string }) => {
     return (
         <button 
             onClick={() => handleModeChange(targetMode)} 
-            disabled={isIncompatible}
-            title={title}
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === targetMode ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'} ${isIncompatible ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === targetMode ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
             {label}
         </button>
     );
@@ -728,7 +446,7 @@ const App: React.FC = () => {
                 <ImageUploader 
                   label={mode === 'image' ? "2. Add a base image (Optional)" : "2. Upload an image (Optional for video)"}
                   setImageData={setSingleImageData} 
-                  disabled={isLoading || isTranslating || isCurrentModeIncompatibleWithProvider}
+                  disabled={isLoading || isTranslating}
                   key={`${mode}-main`} 
                 />
               )}
@@ -739,13 +457,13 @@ const App: React.FC = () => {
                     onImagesChange={setProductImages}
                     images={productImages}
                     multiple={true}
-                    disabled={isLoading || isCurrentModeIncompatibleWithProvider}
+                    disabled={isLoading}
                     key="productShot-main"
                   />
                   <ImageUploader 
                     label="3. Sube una imagen de inspiración (Opcional)"
                     setImageData={setInspirationImageData} 
-                    disabled={isLoading || isCurrentModeIncompatibleWithProvider}
+                    disabled={isLoading}
                     key="productShot-inspiration" 
                   />
                 </>
@@ -824,8 +542,7 @@ const App: React.FC = () => {
                   <VoiceSelector
                     selectedVoice={selectedVoice}
                     setSelectedVoice={setSelectedVoice}
-                    disabled={isLoading || isCurrentModeIncompatibleWithProvider}
-                    apiProvider={apiProvider}
+                    disabled={isLoading}
                   />
                 </div>
                )}
@@ -845,7 +562,7 @@ const App: React.FC = () => {
                       imageUrl={recipeImageUrl} 
                       onImageClick={assetType === 'productShot' ? handleImageClick : undefined}
                     />
-                    {apiProvider === 'gemini' && sources && sources.length > 0 && (
+                    {sources && sources.length > 0 && (
                       <div className="w-full text-left p-2 bg-gray-900/50 rounded-md">
                         <h4 className="text-sm font-semibold text-gray-300 mb-1">Sources:</h4>
                         <ul className="space-y-1">
@@ -903,12 +620,6 @@ const App: React.FC = () => {
                 <div className="flex-grow w-full">
                   <GenerateButton onClick={handleGenerate} disabled={isLoading || isTranslating || !canGenerate} mode={mode} />
                 </div>
-                <button 
-                    onClick={handleClearKey} 
-                    className="w-full sm:w-auto px-4 py-2 text-sm font-semibold text-gray-300 bg-gray-700 rounded-full hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-gray-500 transition-colors duration-200"
-                >
-                    Clear API Key
-                </button>
             </div>
           </div>
         </main>

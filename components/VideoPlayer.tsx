@@ -47,7 +47,6 @@ interface VoiceSelectorProps {
   selectedVoice: string;
   setSelectedVoice: (voice: string) => void;
   disabled: boolean;
-  apiProvider: 'gemini' | 'openrouter';
 }
 
 const GEMINI_VOICES = [
@@ -58,17 +57,8 @@ const GEMINI_VOICES = [
   { id: 'Zephyr', name: 'Zephyr (Female)' },
 ];
 
-const OPENROUTER_VOICES = [
-  { id: 'alloy', name: 'Alloy' },
-  { id: 'echo', name: 'Echo' },
-  { id: 'fable', name: 'Fable' },
-  { id: 'onyx', name: 'Onyx' },
-  { id: 'nova', name: 'Nova' },
-  { id: 'shimmer', name: 'Shimmer' },
-];
-
-export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, setSelectedVoice, disabled, apiProvider }) => {
-  const voices = apiProvider === 'gemini' ? GEMINI_VOICES : OPENROUTER_VOICES;
+export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, setSelectedVoice, disabled }) => {
+  const voices = GEMINI_VOICES;
   
   return (
     <div className="w-full">

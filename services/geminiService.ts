@@ -2,16 +2,7 @@
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { ImageData } from '../types';
 
-export type ProviderConfig = 
-  | { provider: 'gemini'; apiKey: string; }
-  | { 
-      provider: 'openrouter'; 
-      apiKey: string; 
-      model: string; 
-      imageModel: string;
-      visionModel: string;
-    };
-
+export type ProviderConfig = { provider: 'gemini'; apiKey: string; };
 
 // The client is initialized with the key provided by the user.
 function getAiClient(apiKey: string): GoogleGenAI {
@@ -68,117 +59,12 @@ export const createWavBlobFromBase64 = (base64Audio: string): Blob => {
   const pcmBytes = decode(base64Audio);
   const pcmData = new Int16Array(pcmBytes.buffer);
   // Gemini TTS uses 24000Hz sample rate, mono channel.
-  // OpenAI TTS-1 default is also 24000Hz.
   return createWavBlob(pcmData, 24000, 1);
 };
-
-// --- OpenRouter API Helpers ---
-
-const getOpenRouterHeaders = (apiKey: string) => ({
-    'Authorization': `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-    'HTTP-Referer': window.location.hostname,
-    'X-Title': 'Nano Banana',
-});
-
-async function callOpenRouter(apiKey: string, model: string, prompt: string, isJson: boolean = false, images: ImageData[] = []): Promise<string> {
-    const userContent: any[] = [{ type: 'text', text: prompt }];
-    if (images.length > 0) {
-        images.forEach(img => {
-            userContent.push({
-                type: 'image_url',
-                image_url: { url: `data:${img.mimeType};base64,${img.imageBytes}` }
-            });
-        });
-    }
-
-    const body: any = {
-        model: model,
-        messages: [{ role: "user", content: userContent }],
-    };
-
-    if (isJson) {
-        body.response_format = { type: "json_object" };
-    }
-
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: getOpenRouterHeaders(apiKey),
-        body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`OpenRouter API error: ${errorData.error?.message || response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0]?.message?.content?.trim() || '';
-}
-
-async function callOpenRouterImageGeneration(apiKey: string, model: string, prompt: string): Promise<string | undefined> {
-    const response = await fetch('https://openrouter.ai/api/v1/images/generations', {
-        method: 'POST',
-        headers: getOpenRouterHeaders(apiKey),
-        body: JSON.stringify({
-            model: model,
-            prompt: prompt,
-            n: 1,
-            response_format: 'b64_json'
-        }),
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`OpenRouter Image API error: ${errorData.error?.message || response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return data.data[0]?.b64_json;
-}
-
-async function callOpenRouterSpeechGeneration(apiKey: string, input: string, voice: string): Promise<string | undefined> {
-    const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-        method: 'POST',
-        headers: getOpenRouterHeaders(apiKey),
-        body: JSON.stringify({
-            model: 'openai/tts-1',
-            input: input,
-            voice: voice,
-        }),
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`OpenRouter Speech API error: ${errorData.error?.message || response.statusText}`);
-    }
-
-    const audioBlob = await response.blob();
-    const reader = new FileReader();
-    return new Promise((resolve, reject) => {
-        reader.onloadend = () => {
-            const base64String = (reader.result as string)?.split(',')[1];
-            resolve(base64String);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(audioBlob);
-    });
-}
-
 
 // --- Main Service Functions ---
 
 export const generateImage = async (providerConfig: ProviderConfig, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
-  if (providerConfig.provider === 'openrouter') {
-    let finalPrompt = prompt;
-    if (imageData) {
-       const descriptionPrompt = `Describe this image in exquisite detail for an advanced text-to-image generation model. Focus on the subject, style, colors, lighting, and composition. Your description will be used to recreate or modify this image.`;
-       const description = await callOpenRouter(providerConfig.apiKey, providerConfig.visionModel, descriptionPrompt, false, [imageData]);
-       finalPrompt = `Based on the following image description, fulfill the user's request.\n\nImage Description: ${description}\n\nUser Request: "${prompt}"`;
-    }
-    return await callOpenRouterImageGeneration(providerConfig.apiKey, providerConfig.imageModel, finalPrompt);
-  }
-
   const ai = getAiClient(providerConfig.apiKey);
   const parts: any[] = [{ text: prompt }];
 
@@ -214,33 +100,6 @@ export const generateImage = async (providerConfig: ProviderConfig, prompt: stri
 };
 
 export const generateProductShot = async (providerConfig: ProviderConfig, prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null): Promise<string[] | undefined> => {
-    if (providerConfig.provider === 'openrouter') {
-        const allImages = [...productImages];
-        if (inspirationImageData) {
-            allImages.push(inspirationImageData);
-        }
-        
-        let descriptionPrompt = `You are an expert AI product photographer. The user has provided one or more images of a product. Your task is to analyze all these images to get a complete understanding of the product's shape, texture, and details. Then, create a detailed text prompt that a text-to-image model can use to generate a professional, high-quality product shot suitable for an e-commerce website.
-
-The generated prompt should instruct the model to:
-1. Isolate the product on a clean, seamless, neutral background (e.g., pure white #FFFFFF).
-2. Use professional studio lighting.
-3. Add a soft, realistic shadow.
-4. Create a high-resolution, photorealistic, and well-composed image.
-5. Do not add any text or watermarks.`;
-
-        if (inspirationImageData) {
-            descriptionPrompt += `\n\nCRITICAL: An inspiration image was the last one provided. The generated prompt MUST heavily reference its mood, lighting, style, and composition.`;
-        }
-        if (prompt) {
-            descriptionPrompt += `\n\nIncorporate this user request: "${prompt}"`;
-        }
-
-        const imageGenPrompt = await callOpenRouter(providerConfig.apiKey, providerConfig.visionModel, descriptionPrompt, false, allImages);
-        const base64Image = await callOpenRouterImageGeneration(providerConfig.apiKey, providerConfig.imageModel, imageGenPrompt);
-        return base64Image ? [base64Image] : undefined;
-    }
-
     const ai = getAiClient(providerConfig.apiKey);
     
     let finalPrompt = `You are an expert AI product photographer. The user has provided one or more images of a SINGLE product, likely from different angles. Your task is to use all these images to get a complete understanding of the product's shape, texture, and details. Then, create professional, high-quality product shots suitable for an e-commerce website.
@@ -293,10 +152,6 @@ Your output must contain ONLY the generated image(s).`;
 export const analyzeImage = async (providerConfig: ProviderConfig, imageData: ImageData): Promise<string> => {
   const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
   
-  if (providerConfig.provider === 'openrouter') {
-      return callOpenRouter(providerConfig.apiKey, providerConfig.visionModel, prompt, false, [imageData]);
-  }
-
   const ai = getAiClient(providerConfig.apiKey);
   const parts = [
     { inlineData: { data: imageData.imageBytes, mimeType: imageData.mimeType } },
@@ -310,10 +165,6 @@ export const analyzeImage = async (providerConfig: ProviderConfig, imageData: Im
 };
 
 export const generateVideo = async (providerConfig: ProviderConfig, prompt: string, imageData: ImageData | null): Promise<Blob> => {
-  if (providerConfig.provider === 'openrouter') {
-    throw new Error("Video generation is not supported with OpenRouter in this application.");
-  }
-
   const ai = getAiClient(providerConfig.apiKey);
   const envApiKey = providerConfig.apiKey === 'aistudio_managed_key' ? process.env.API_KEY : providerConfig.apiKey;
   if (!envApiKey) throw new Error("API key not found.");
@@ -353,29 +204,24 @@ export const generateVideo = async (providerConfig: ProviderConfig, prompt: stri
 export const generateRecipe = async (providerConfig: ProviderConfig, prompt: string): Promise<string> => {
     const fullPrompt = `Generate a recipe based on this prompt: "${prompt}". Your response must be a JSON object with the following schema: { "title": "string", "description": "string", "ingredients": ["string"], "instructions": ["string"] }. Make sure the description is brief.`;
 
-    let recipeJsonString: string;
-    if (providerConfig.provider === 'openrouter') {
-        recipeJsonString = await callOpenRouter(providerConfig.apiKey, providerConfig.model, fullPrompt, true);
-    } else {
-        const ai = getAiClient(providerConfig.apiKey);
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: fullPrompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT, properties: {
-                title: { type: Type.STRING },
-                description: { type: Type.STRING },
-                ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-                instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
-              },
-              required: ['title', 'ingredients', 'instructions'],
-            },
+    const ai = getAiClient(providerConfig.apiKey);
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: fullPrompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT, properties: {
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+            instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
           },
-        });
-        recipeJsonString = response.text;
-    }
+          required: ['title', 'ingredients', 'instructions'],
+        },
+      },
+    });
+    const recipeJsonString = response.text;
 
     if (!recipeJsonString) throw new Error("Recipe generation failed to produce a result.");
     
@@ -401,21 +247,14 @@ export const generateRecipe = async (providerConfig: ProviderConfig, prompt: str
     Ensure the description is brief. If you cannot find a recipe, return a JSON object with an "error" field.
     Your response must contain ONLY the JSON object.`;
 
-    let recipeJsonString: string;
-    let sources: any[] | undefined = undefined;
-
-    if (providerConfig.provider === 'openrouter') {
-        recipeJsonString = await callOpenRouter(providerConfig.apiKey, providerConfig.model, fullPrompt, true);
-    } else {
-        const ai = getAiClient(providerConfig.apiKey);
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: fullPrompt,
-          config: { tools: [{googleSearch: {}}] },
-        });
-        recipeJsonString = response.text;
-        sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    }
+    const ai = getAiClient(providerConfig.apiKey);
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: fullPrompt,
+      config: { tools: [{googleSearch: {}}] },
+    });
+    let recipeJsonString = response.text;
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
 
     if (!recipeJsonString) throw new Error("Recipe extraction failed to produce a result.");
     
@@ -450,23 +289,15 @@ export const translateText = async (providerConfig: ProviderConfig, text: string
     prompt = `Translate the following text to ${targetLanguage}. Provide only the translated text. Text: """${text}"""`;
   }
 
-  let translatedText: string;
-  if (providerConfig.provider === 'openrouter') {
-    translatedText = await callOpenRouter(providerConfig.apiKey, providerConfig.model, prompt);
-  } else {
-    const ai = getAiClient(providerConfig.apiKey);
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-    translatedText = response.text.trim();
-  }
+  const ai = getAiClient(providerConfig.apiKey);
+  const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+  const translatedText = response.text.trim();
 
   if (!translatedText) throw new Error("Translation failed to produce a result.");
   return translatedText;
 };
 
 export const generateSpeech = async (providerConfig: ProviderConfig, text: string, voice: string): Promise<string | undefined> => {
-    if (providerConfig.provider === 'openrouter') {
-      return await callOpenRouterSpeechGeneration(providerConfig.apiKey, text, voice);
-    }
     const ai = getAiClient(providerConfig.apiKey);
 
     const response = await ai.models.generateContent({
