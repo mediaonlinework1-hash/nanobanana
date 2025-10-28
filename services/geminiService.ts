@@ -4,7 +4,13 @@ import type { ImageData } from '../types';
 
 export type ProviderConfig = 
   | { provider: 'gemini'; apiKey: string; }
-  | { provider: 'openrouter'; apiKey: string; model: string; };
+  | { 
+      provider: 'openrouter'; 
+      apiKey: string; 
+      model: string; 
+      imageModel: string;
+      visionModel: string;
+    };
 
 
 // The client is initialized with the key provided by the user.
@@ -61,14 +67,34 @@ const createWavBlob = (pcmData: Int16Array, sampleRate: number, numChannels: num
 export const createWavBlobFromBase64 = (base64Audio: string): Blob => {
   const pcmBytes = decode(base64Audio);
   const pcmData = new Int16Array(pcmBytes.buffer);
-  // Gemini TTS uses 24000Hz sample rate, mono channel
+  // Gemini TTS uses 24000Hz sample rate, mono channel.
+  // OpenAI TTS-1 default is also 24000Hz.
   return createWavBlob(pcmData, 24000, 1);
 };
 
-async function callOpenRouter(apiKey: string, model: string, prompt: string, isJson: boolean = false): Promise<string> {
+// --- OpenRouter API Helpers ---
+
+const getOpenRouterHeaders = (apiKey: string) => ({
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': window.location.hostname,
+    'X-Title': 'Nano Banana',
+});
+
+async function callOpenRouter(apiKey: string, model: string, prompt: string, isJson: boolean = false, images: ImageData[] = []): Promise<string> {
+    const userContent: any[] = [{ type: 'text', text: prompt }];
+    if (images.length > 0) {
+        images.forEach(img => {
+            userContent.push({
+                type: 'image_url',
+                image_url: { url: `data:${img.mimeType};base64,${img.imageBytes}` }
+            });
+        });
+    }
+
     const body: any = {
         model: model,
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", content: userContent }],
     };
 
     if (isJson) {
@@ -77,12 +103,7 @@ async function callOpenRouter(apiKey: string, model: string, prompt: string, isJ
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': window.location.hostname,
-            'X-Title': 'Nano Banana',
-        },
+        headers: getOpenRouterHeaders(apiKey),
         body: JSON.stringify(body),
     });
 
@@ -95,10 +116,67 @@ async function callOpenRouter(apiKey: string, model: string, prompt: string, isJ
     return data.choices[0]?.message?.content?.trim() || '';
 }
 
+async function callOpenRouterImageGeneration(apiKey: string, model: string, prompt: string): Promise<string | undefined> {
+    const response = await fetch('https://openrouter.ai/api/v1/images/generations', {
+        method: 'POST',
+        headers: getOpenRouterHeaders(apiKey),
+        body: JSON.stringify({
+            model: model,
+            prompt: prompt,
+            n: 1,
+            response_format: 'b64_json'
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenRouter Image API error: ${errorData.error?.message || response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.data[0]?.b64_json;
+}
+
+async function callOpenRouterSpeechGeneration(apiKey: string, input: string, voice: string): Promise<string | undefined> {
+    const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+        method: 'POST',
+        headers: getOpenRouterHeaders(apiKey),
+        body: JSON.stringify({
+            model: 'openai/tts-1',
+            input: input,
+            voice: voice,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenRouter Speech API error: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const audioBlob = await response.blob();
+    const reader = new FileReader();
+    return new Promise((resolve, reject) => {
+        reader.onloadend = () => {
+            const base64String = (reader.result as string)?.split(',')[1];
+            resolve(base64String);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(audioBlob);
+    });
+}
+
+
+// --- Main Service Functions ---
 
 export const generateImage = async (providerConfig: ProviderConfig, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
   if (providerConfig.provider === 'openrouter') {
-    throw new Error("Image generation is not supported with OpenRouter in this application.");
+    let finalPrompt = prompt;
+    if (imageData) {
+       const descriptionPrompt = `Describe this image in exquisite detail for an advanced text-to-image generation model. Focus on the subject, style, colors, lighting, and composition. Your description will be used to recreate or modify this image.`;
+       const description = await callOpenRouter(providerConfig.apiKey, providerConfig.visionModel, descriptionPrompt, false, [imageData]);
+       finalPrompt = `Based on the following image description, fulfill the user's request.\n\nImage Description: ${description}\n\nUser Request: "${prompt}"`;
+    }
+    return await callOpenRouterImageGeneration(providerConfig.apiKey, providerConfig.imageModel, finalPrompt);
   }
 
   const ai = getAiClient(providerConfig.apiKey);
@@ -137,7 +215,30 @@ export const generateImage = async (providerConfig: ProviderConfig, prompt: stri
 
 export const generateProductShot = async (providerConfig: ProviderConfig, prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null): Promise<string[] | undefined> => {
     if (providerConfig.provider === 'openrouter') {
-      throw new Error("Product Shot generation is not supported with OpenRouter in this application.");
+        const allImages = [...productImages];
+        if (inspirationImageData) {
+            allImages.push(inspirationImageData);
+        }
+        
+        let descriptionPrompt = `You are an expert AI product photographer. The user has provided one or more images of a product. Your task is to analyze all these images to get a complete understanding of the product's shape, texture, and details. Then, create a detailed text prompt that a text-to-image model can use to generate a professional, high-quality product shot suitable for an e-commerce website.
+
+The generated prompt should instruct the model to:
+1. Isolate the product on a clean, seamless, neutral background (e.g., pure white #FFFFFF).
+2. Use professional studio lighting.
+3. Add a soft, realistic shadow.
+4. Create a high-resolution, photorealistic, and well-composed image.
+5. Do not add any text or watermarks.`;
+
+        if (inspirationImageData) {
+            descriptionPrompt += `\n\nCRITICAL: An inspiration image was the last one provided. The generated prompt MUST heavily reference its mood, lighting, style, and composition.`;
+        }
+        if (prompt) {
+            descriptionPrompt += `\n\nIncorporate this user request: "${prompt}"`;
+        }
+
+        const imageGenPrompt = await callOpenRouter(providerConfig.apiKey, providerConfig.visionModel, descriptionPrompt, false, allImages);
+        const base64Image = await callOpenRouterImageGeneration(providerConfig.apiKey, providerConfig.imageModel, imageGenPrompt);
+        return base64Image ? [base64Image] : undefined;
     }
 
     const ai = getAiClient(providerConfig.apiKey);
@@ -155,28 +256,10 @@ For each generated image, follow these rules:
 6.  Do not add any text, watermarks, or other elements.`;
     
     const parts: any[] = [];
-
-    productImages.forEach(img => {
-      parts.push({
-        inlineData: {
-          data: img.imageBytes,
-          mimeType: img.mimeType,
-        },
-      });
-    });
-
-
+    productImages.forEach(img => parts.push({ inlineData: { data: img.imageBytes, mimeType: img.mimeType } }));
     if (inspirationImageData) {
-      finalPrompt += `
-
-IMPORTANT INSTRUCTION: A separate image has been provided as an INSPIRATION image. You MUST use this inspiration image as a strong reference for the mood, lighting, style, and composition of the final product shot(s). The goal is to make the new product shots look like they belong in the same photoshoot as the inspiration image.`;
-      
-      parts.push({
-            inlineData: {
-                data: inspirationImageData.imageBytes,
-                mimeType: inspirationImageData.mimeType,
-            },
-      });
+      finalPrompt += `\n\nIMPORTANT INSTRUCTION: A separate image has been provided as an INSPIRATION image. You MUST use this inspiration image as a strong reference for the mood, lighting, style, and composition of the final product shot(s). The goal is to make the new product shots look like they belong in the same photoshoot as the inspiration image.`;
+      parts.push({ inlineData: { data: inspirationImageData.imageBytes, mimeType: inspirationImageData.mimeType } });
     }
     
     finalPrompt += `
@@ -190,9 +273,7 @@ Your output must contain ONLY the generated image(s).`;
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts },
-        config: {
-            responseModalities: [Modality.IMAGE],
-        },
+        config: { responseModalities: [Modality.IMAGE] },
     });
 
     const imageDatas: string[] = [];
@@ -202,15 +283,9 @@ Your output must contain ONLY the generated image(s).`;
         }
     }
 
-    if (imageDatas.length > 0) {
-        return imageDatas;
-    }
-
+    if (imageDatas.length > 0) return imageDatas;
     const textResponse = response.text;
-    if (textResponse) {
-        throw new Error(`Product shot generation failed: ${textResponse}`);
-    }
-
+    if (textResponse) throw new Error(`Product shot generation failed: ${textResponse}`);
     throw new Error("Product shot generation failed to produce any images.");
 };
 
@@ -219,31 +294,18 @@ export const analyzeImage = async (providerConfig: ProviderConfig, imageData: Im
   const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
   
   if (providerConfig.provider === 'openrouter') {
-      const fullPrompt = `${prompt} \n\n Image data is not available, but analyze based on a hypothetical common scene.`;
-      return callOpenRouter(providerConfig.apiKey, providerConfig.model, fullPrompt);
+      return callOpenRouter(providerConfig.apiKey, providerConfig.visionModel, prompt, false, [imageData]);
   }
 
   const ai = getAiClient(providerConfig.apiKey);
   const parts = [
-    {
-      inlineData: {
-        data: imageData.imageBytes,
-        mimeType: imageData.mimeType,
-      },
-    },
+    { inlineData: { data: imageData.imageBytes, mimeType: imageData.mimeType } },
     { text: prompt },
   ];
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: { parts },
-  });
-
+  const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: { parts } });
   const analysisText = response.text.trim();
-  if (!analysisText) {
-    throw new Error('Analysis failed to produce a suggestion.');
-  }
-
+  if (!analysisText) throw new Error('Analysis failed to produce a suggestion.');
   return analysisText;
 };
 
@@ -254,28 +316,16 @@ export const generateVideo = async (providerConfig: ProviderConfig, prompt: stri
 
   const ai = getAiClient(providerConfig.apiKey);
   const envApiKey = providerConfig.apiKey === 'aistudio_managed_key' ? process.env.API_KEY : providerConfig.apiKey;
-  if (!envApiKey) {
-    throw new Error("API key not found.");
-  }
+  if (!envApiKey) throw new Error("API key not found.");
   
-  const request: {
-    model: string;
-    prompt: string;
-    image?: { imageBytes: string; mimeType: string; };
-    config: { numberOfVideos: number; };
-  } = {
+  const request: { model: string; prompt: string; image?: { imageBytes: string; mimeType: string; }; config: { numberOfVideos: number; }; } = {
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt,
-    config: {
-      numberOfVideos: 1
-    }
+    config: { numberOfVideos: 1 }
   };
 
   if (imageData) {
-    request.image = {
-      imageBytes: imageData.imageBytes,
-      mimeType: imageData.mimeType,
-    };
+    request.image = { imageBytes: imageData.imageBytes, mimeType: imageData.mimeType };
   }
 
   let operation = await ai.models.generateVideos(request);
@@ -314,20 +364,11 @@ export const generateRecipe = async (providerConfig: ProviderConfig, prompt: str
           config: {
             responseMimeType: 'application/json',
             responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING, description: "Title of the recipe." },
-                description: { type: Type.STRING, description: "A short, enticing description of the recipe." },
-                ingredients: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: "List of ingredients."
-                },
-                instructions: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: "Step-by-step instructions."
-                },
+              type: Type.OBJECT, properties: {
+                title: { type: Type.STRING },
+                description: { type: Type.STRING },
+                ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+                instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
               },
               required: ['title', 'ingredients', 'instructions'],
             },
@@ -336,27 +377,16 @@ export const generateRecipe = async (providerConfig: ProviderConfig, prompt: str
         recipeJsonString = response.text;
     }
 
-    if (!recipeJsonString) {
-      throw new Error("Recipe generation failed to produce a result.");
-    }
+    if (!recipeJsonString) throw new Error("Recipe generation failed to produce a result.");
     
     try {
         const recipe = JSON.parse(recipeJsonString);
-        
         let formattedRecipe = `## ${recipe.title}\n\n`;
-        if (recipe.description) {
-          formattedRecipe += `${recipe.description}\n\n`;
-        }
+        if (recipe.description) formattedRecipe += `${recipe.description}\n\n`;
         formattedRecipe += `### Ingredients\n`;
-        recipe.ingredients.forEach((ingredient: string) => {
-          formattedRecipe += `- ${ingredient}\n`;
-        });
-        
+        recipe.ingredients.forEach((ingredient: string) => { formattedRecipe += `- ${ingredient}\n`; });
         formattedRecipe += `\n### Instructions\n`;
-        recipe.instructions.forEach((instruction: string, index: number) => {
-          formattedRecipe += `${index + 1}. ${instruction}\n`;
-        });
-
+        recipe.instructions.forEach((instruction: string, index: number) => { formattedRecipe += `${index + 1}. ${instruction}\n`; });
         return formattedRecipe;
     } catch (e) {
         console.error("Failed to parse recipe JSON:", recipeJsonString);
@@ -365,101 +395,59 @@ export const generateRecipe = async (providerConfig: ProviderConfig, prompt: str
   };
 
   export const generateRecipeFromLink = async (providerConfig: ProviderConfig, url: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
-    if (providerConfig.provider === 'openrouter') {
-        throw new Error("Recipe generation from a link is not supported with OpenRouter in this application.");
-    }
-
-    const ai = getAiClient(providerConfig.apiKey);
-    const fullPrompt = `Using your search tool, access the following URL and extract the recipe details: "${url}".
+    const fullPrompt = `Access your knowledge of the recipe at the following URL and extract its details: "${url}".
     Find the main image associated with the recipe and include its public URL.
     Format your response as a single, clean JSON object with the following structure: { "title": "string", "description": "string", "imageUrl": "string", "ingredients": ["string"], "instructions": ["string"] }.
-    Ensure the description is brief. If you cannot find a recipe at the URL, return a JSON object with an "error" field, like this: { "error": "Recipe not found." }.
-    Your response must contain ONLY the JSON object, with no other text or markdown formatting before or after it.`;
+    Ensure the description is brief. If you cannot find a recipe, return a JSON object with an "error" field.
+    Your response must contain ONLY the JSON object.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
-      config: {
-        tools: [{googleSearch: {}}],
-      },
-    });
+    let recipeJsonString: string;
+    let sources: any[] | undefined = undefined;
 
-    let recipeJsonString = response.text;
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-
-    if (!recipeJsonString) {
-      throw new Error("Recipe extraction failed to produce a result.");
+    if (providerConfig.provider === 'openrouter') {
+        recipeJsonString = await callOpenRouter(providerConfig.apiKey, providerConfig.model, fullPrompt, true);
+    } else {
+        const ai = getAiClient(providerConfig.apiKey);
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: fullPrompt,
+          config: { tools: [{googleSearch: {}}] },
+        });
+        recipeJsonString = response.text;
+        sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     }
+
+    if (!recipeJsonString) throw new Error("Recipe extraction failed to produce a result.");
     
-    if (recipeJsonString.startsWith('```json')) {
-      recipeJsonString = recipeJsonString.slice(7, -3).trim();
-    } else if (recipeJsonString.startsWith('```')) {
-      recipeJsonString = recipeJsonString.slice(3, -3).trim();
-    }
+    if (recipeJsonString.startsWith('```json')) recipeJsonString = recipeJsonString.slice(7, -3).trim();
+    else if (recipeJsonString.startsWith('```')) recipeJsonString = recipeJsonString.slice(3, -3).trim();
     
     try {
         const recipe = JSON.parse(recipeJsonString);
-
-        if (recipe.error) {
-            throw new Error(`Could not get recipe from URL: ${recipe.error}`);
-        }
-
-        if (!recipe.title || !recipe.ingredients || !recipe.instructions) {
-            throw new Error("Extracted data is not a valid recipe. Please try another URL.");
-        }
+        if (recipe.error) throw new Error(`Could not get recipe from URL: ${recipe.error}`);
+        if (!recipe.title || !recipe.ingredients || !recipe.instructions) throw new Error("Extracted data is not a valid recipe. Please try another URL.");
         
         const imageUrl = recipe.imageUrl;
         let formattedRecipe = `## ${recipe.title}\n\n`;
-        if (recipe.description) {
-          formattedRecipe += `${recipe.description}\n\n`;
-        }
+        if (recipe.description) formattedRecipe += `${recipe.description}\n\n`;
         formattedRecipe += `### Ingredients\n`;
-        recipe.ingredients.forEach((ingredient: string) => {
-          formattedRecipe += `- ${ingredient}\n`;
-        });
-        
+        recipe.ingredients.forEach((ingredient: string) => { formattedRecipe += `- ${ingredient}\n`; });
         formattedRecipe += `\n### Instructions\n`;
-        recipe.instructions.forEach((instruction: string, index: number) => {
-          formattedRecipe += `${index + 1}. ${instruction}\n`;
-        });
-
+        recipe.instructions.forEach((instruction: string, index: number) => { formattedRecipe += `${index + 1}. ${instruction}\n`; });
         return { formattedRecipe, sources, imageUrl };
     } catch (e) {
         console.error("Failed to parse recipe JSON from link:", recipeJsonString, e);
-        if (e instanceof Error && (e.message.startsWith("Could not get recipe") || e.message.startsWith("Extracted data is not"))) {
-            throw e; 
-        }
+        if (e instanceof Error && (e.message.startsWith("Could not get recipe") || e.message.startsWith("Extracted data is not"))) throw e; 
         return { formattedRecipe: `Could not format the recipe, but here is the raw text:\n\n${recipeJsonString}`, sources, imageUrl: undefined };
     }
   };
   
 export const translateText = async (providerConfig: ProviderConfig, text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
   let prompt: string;
-
   if (stylize) {
-    prompt = `
-      Follow these steps carefully:
-      1. First, read and fact-check the following text for any inaccuracies.
-      2. Correct any factual errors you find.
-      3. Rewrite the corrected text in an engaging, enthusiastic, and friendly style. Use symbols and emojis to make it visually appealing.
-      4. Finally, translate the stylized and corrected text into ${targetLanguage}.
-      5. Your final output MUST BE ONLY the translated text. Do not include any of the intermediate steps, original text, comments, or explanations.
-
-      Text to process:
-      """
-      ${text}
-      """
-    `;
+    prompt = `First, fact-check and correct the following text. Then, rewrite it in an engaging, friendly style with emojis. Finally, translate the stylized text into ${targetLanguage}. Your final output MUST BE ONLY the translated text. Text: """${text}"""`;
   } else {
-    prompt = `
-      Translate the following text to ${targetLanguage}. 
-      Provide only the translated text, without any additional comments, labels, or explanations.
-
-      Text to translate:
-      """
-      ${text}
-      """
-    `;
+    prompt = `Translate the following text to ${targetLanguage}. Provide only the translated text. Text: """${text}"""`;
   }
 
   let translatedText: string;
@@ -467,23 +455,17 @@ export const translateText = async (providerConfig: ProviderConfig, text: string
     translatedText = await callOpenRouter(providerConfig.apiKey, providerConfig.model, prompt);
   } else {
     const ai = getAiClient(providerConfig.apiKey);
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-    });
+    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
     translatedText = response.text.trim();
   }
 
-  if (!translatedText) {
-    throw new Error("Translation failed to produce a result.");
-  }
-
+  if (!translatedText) throw new Error("Translation failed to produce a result.");
   return translatedText;
 };
 
 export const generateSpeech = async (providerConfig: ProviderConfig, text: string, voice: string): Promise<string | undefined> => {
     if (providerConfig.provider === 'openrouter') {
-      throw new Error("Text-to-Speech is not supported with OpenRouter in this application.");
+      return await callOpenRouterSpeechGeneration(providerConfig.apiKey, text, voice);
     }
     const ai = getAiClient(providerConfig.apiKey);
 
@@ -492,23 +474,13 @@ export const generateSpeech = async (providerConfig: ProviderConfig, text: strin
         contents: [{ parts: [{ text: text }] }],
         config: {
             responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: voice },
-                },
-            },
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
         },
     });
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (base64Audio) {
-        return base64Audio;
-    }
-
+    if (base64Audio) return base64Audio;
     const textResponse = response.text;
-    if (textResponse) {
-        throw new Error(`Speech generation failed: ${textResponse}`);
-    }
-
+    if (textResponse) throw new Error(`Speech generation failed: ${textResponse}`);
     throw new Error("Speech generation failed to produce audio.");
 };

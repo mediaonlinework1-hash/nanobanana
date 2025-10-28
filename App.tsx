@@ -30,6 +30,18 @@ const OPENROUTER_MODELS = [
     { id: 'meta-llama/llama-3-8b-instruct', name: 'Meta: Llama 3 8B Instruct' },
 ];
 
+const OPENROUTER_IMAGE_MODELS = [
+    { id: 'openai/dall-e-3', name: 'OpenAI: DALL-E 3' },
+    { id: 'playgroundai/playground-v2.5', name: 'Playground v2.5' },
+    { id: 'stabilityai/stable-diffusion-3', name: 'Stable Diffusion 3' },
+];
+
+const OPENROUTER_VISION_MODELS = [
+    { id: 'openai/gpt-4o', name: 'OpenAI: GPT-4o' },
+    { id: 'google/gemini-pro-vision', name: 'Google: Gemini Pro Vision' },
+];
+
+
 type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 
 const App: React.FC = () => {
@@ -60,12 +72,14 @@ const App: React.FC = () => {
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
 
   // API Key Management
-  const [apiProvider, setApiProvider] = useState('gemini');
+  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>('gemini');
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState<string>('');
   const [hasGeminiApiKey, setHasGeminiApiKey] = useState<boolean>(false);
   const [openRouterApiKeyInput, setOpenRouterApiKeyInput] = useState<string>('');
   const [hasOpenRouterApiKey, setHasOpenRouterApiKey] = useState<boolean>(false);
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState(OPENROUTER_MODELS[0].id);
+  const [selectedOpenRouterImageModel, setSelectedOpenRouterImageModel] = useState(OPENROUTER_IMAGE_MODELS[0].id);
+  const [selectedOpenRouterVisionModel, setSelectedOpenRouterVisionModel] = useState(OPENROUTER_VISION_MODELS[0].id);
   const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
 
   const previousAssetUrls = useRef<string[]>([]);
@@ -211,7 +225,13 @@ const App: React.FC = () => {
             setHasOpenRouterApiKey(false);
             return null;
         }
-        providerConfig = { provider: 'openrouter', apiKey, model: selectedOpenRouterModel };
+        providerConfig = { 
+          provider: 'openrouter', 
+          apiKey, 
+          model: selectedOpenRouterModel,
+          imageModel: selectedOpenRouterImageModel,
+          visionModel: selectedOpenRouterVisionModel,
+        };
     }
 
     setError(null);
@@ -444,7 +464,12 @@ const App: React.FC = () => {
       setContextualPersonSuggestion(null);
       setTargetLanguage('Spanish');
       setStylizeAndCorrect(false);
-      setSelectedVoice('Kore');
+      // Reset voice to a default that exists for both providers
+      if (apiProvider === 'gemini') {
+        setSelectedVoice('Kore');
+      } else {
+        setSelectedVoice('alloy');
+      }
       setSources(null);
       setRecipeImageUrl(null);
       setTextToTranslate('');
@@ -496,10 +521,8 @@ const App: React.FC = () => {
   
   const isProviderCompatibleWithMode = () => {
     if (apiProvider === 'gemini') return true;
-    // OpenRouter is only compatible with text-based generation/translation
-    const compatibleModes: AppMode[] = ['recipe'];
-    if (mode === 'image') return true; // Image mode has translation which is text-based
-    return compatibleModes.includes(mode);
+    if (mode === 'video') return false;
+    return true;
   }
 
   const imageGenCanGenerate = mode === 'image' && (prompt.trim().length > 0 || (!!singleImageData && (removeText || addPerson || similarity !== null)));
@@ -507,12 +530,12 @@ const App: React.FC = () => {
   const linkRecipeCanGenerate = mode === 'linkRecipe' && prompt.trim().length > 0;
 
   const canGenerate = hasActiveApiKey && isProviderCompatibleWithMode() && (
-      (mode === 'image' && apiProvider === 'gemini' && imageGenCanGenerate) ||
+      (mode === 'image' && imageGenCanGenerate) ||
       (mode === 'recipe' && baseCanGenerate) ||
-      (mode === 'video' && apiProvider === 'gemini' && baseCanGenerate) ||
-      (mode === 'productShot' && apiProvider === 'gemini' && productShotCanGenerate) ||
-      (mode === 'linkRecipe' && apiProvider === 'gemini' && linkRecipeCanGenerate) ||
-      (mode === 'speech' && apiProvider === 'gemini' && baseCanGenerate)
+      (mode === 'video' && baseCanGenerate) ||
+      (mode === 'productShot' && productShotCanGenerate) ||
+      (mode === 'linkRecipe' && linkRecipeCanGenerate) ||
+      (mode === 'speech' && baseCanGenerate)
   );
 
   const getPlaceholderText = () => {
@@ -528,9 +551,27 @@ const App: React.FC = () => {
   };
 
   if (!hasActiveApiKey) {
+    const ModelSelector = ({label, value, onChange, models}: {label: string, value: string, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void, models: {id: string, name: string}[]}) => (
+        <div className="my-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50">
+            <label htmlFor={`${label}-select`} className="block text-sm font-medium text-gray-300 mb-2">
+                {label}
+            </label>
+            <select
+                id={`${label}-select`}
+                value={value}
+                onChange={onChange}
+                className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-md focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors duration-200"
+            >
+                {models.map(model => (
+                    <option key={model.id} value={model.id}>{model.name}</option>
+                ))}
+            </select>
+        </div>
+    );
+
     return (
       <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md text-center bg-gray-800/50 p-8 rounded-2xl shadow-2xl border border-gray-700/50">
+        <div className="w-full max-w-lg text-center bg-gray-800/50 p-8 rounded-2xl shadow-2xl border border-gray-700/50">
           <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent mb-4">
             Welcome to Nano Banana
           </h2>
@@ -593,34 +634,37 @@ const App: React.FC = () => {
             </>
           ) : (
              <>
-              <ApiKeyInput
-                providerName="OpenRouter"
-                getKeyUrl="https://openrouter.ai/keys"
-                apiKeyInput={openRouterApiKeyInput}
-                setApiKeyInput={setOpenRouterApiKeyInput}
-                onSave={handleSaveOpenRouterKey}
-                onClear={handleClearKey}
-              />
-                <div className="my-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50">
-                    <label htmlFor="model-select" className="block text-sm font-medium text-gray-300 mb-2">
-                        Select a Model
-                    </label>
-                    <select
-                        id="model-select"
-                        value={selectedOpenRouterModel}
-                        onChange={(e) => setSelectedOpenRouterModel(e.target.value)}
-                        className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-md focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors duration-200"
-                    >
-                        {OPENROUTER_MODELS.map(model => (
-                            <option key={model.id} value={model.id}>{model.name}</option>
-                        ))}
-                    </select>
-                </div>
+                <ApiKeyInput
+                    providerName="OpenRouter"
+                    getKeyUrl="https://openrouter.ai/keys"
+                    apiKeyInput={openRouterApiKeyInput}
+                    setApiKeyInput={setOpenRouterApiKeyInput}
+                    onSave={handleSaveOpenRouterKey}
+                    onClear={handleClearKey}
+                />
+                <ModelSelector 
+                    label="Select a Text Model"
+                    value={selectedOpenRouterModel}
+                    onChange={(e) => setSelectedOpenRouterModel(e.target.value)}
+                    models={OPENROUTER_MODELS}
+                />
+                <ModelSelector 
+                    label="Select an Image Generation Model"
+                    value={selectedOpenRouterImageModel}
+                    onChange={(e) => setSelectedOpenRouterImageModel(e.target.value)}
+                    models={OPENROUTER_IMAGE_MODELS}
+                />
+                <ModelSelector 
+                    label="Select a Vision Model (for Analysis)"
+                    value={selectedOpenRouterVisionModel}
+                    onChange={(e) => setSelectedOpenRouterVisionModel(e.target.value)}
+                    models={OPENROUTER_VISION_MODELS}
+                />
                <div className="mt-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg text-center">
                  <p className="text-blue-300 text-sm">
-                   OpenRouter can be used for text-based tasks like Recipe Generation and Translation.
+                   OpenRouter can be used for most features.
                    <br/><br/>
-                   For Image/Video/Audio features, please select the <strong>Google Gemini</strong> provider.
+                   <strong>Video Generation</strong> is only available with the Google Gemini provider.
                  </p>
                </div>
                 <div className="my-4">
@@ -636,7 +680,7 @@ const App: React.FC = () => {
   const isCurrentModeIncompatibleWithProvider = !isProviderCompatibleWithMode();
   
   const ModeButton = ({ targetMode, label, disabled = false }: { targetMode: AppMode; label: string, disabled?: boolean }) => {
-    const isIncompatible = disabled || (apiProvider === 'openrouter' && (targetMode === 'video' || targetMode === 'speech' || targetMode === 'productShot' || targetMode === 'linkRecipe'));
+    const isIncompatible = disabled || (apiProvider === 'openrouter' && targetMode === 'video');
     const title = isIncompatible ? `This mode is only available with the Gemini API` : `Switch to ${label} mode`;
     return (
         <button 
@@ -781,6 +825,7 @@ const App: React.FC = () => {
                     selectedVoice={selectedVoice}
                     setSelectedVoice={setSelectedVoice}
                     disabled={isLoading || isCurrentModeIncompatibleWithProvider}
+                    apiProvider={apiProvider}
                   />
                 </div>
                )}
@@ -800,7 +845,7 @@ const App: React.FC = () => {
                       imageUrl={recipeImageUrl} 
                       onImageClick={assetType === 'productShot' ? handleImageClick : undefined}
                     />
-                    {sources && sources.length > 0 && (
+                    {apiProvider === 'gemini' && sources && sources.length > 0 && (
                       <div className="w-full text-left p-2 bg-gray-900/50 rounded-md">
                         <h4 className="text-sm font-semibold text-gray-300 mb-1">Sources:</h4>
                         <ul className="space-y-1">
