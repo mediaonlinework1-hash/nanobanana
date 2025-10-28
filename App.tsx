@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot } from './services/geminiService';
 import type { ImageData } from './types';
@@ -53,6 +54,7 @@ const App: React.FC = () => {
   const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
+  const [apiProvider, setApiProvider] = useState('gemini');
   
   const previousAssetUrls = useRef<string[]>([]);
 
@@ -476,39 +478,78 @@ const App: React.FC = () => {
           <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent mb-4">
             Welcome to Nano Banana
           </h2>
-          <p className="text-gray-300 mb-2">
-            To use this application, please enter your Gemini API key.
+          <p className="text-gray-300 mb-6">
+            To use this application, please provide an API key from your preferred provider.
           </p>
-          <p className="text-sm text-yellow-400/80 mb-6 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
-            <strong>Important:</strong> For full functionality, especially for video generation, please use an API key from a Google Cloud project with{' '}
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-yellow-300">
-              billing enabled
-            </a>. Free-tier keys may have limited access and quotas.
-          </p>
-          <ApiKeyInput
-            apiKeyInput={apiKeyInput}
-            setApiKeyInput={handleApiKeyInputChange}
-            onSave={handleSaveKey}
-            onClear={handleClearKey}
-            disabled={false}
-          />
-          <div className="my-4">
-            <ErrorDisplay message={error} />
-          </div>
-          {isStudioEnvironment && (
-            <>
-              <div className="relative flex items-center justify-center my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-600"></div>
-                </div>
-                <div className="relative px-2 bg-gray-800 text-sm text-gray-400">OR</div>
+          
+          <div className="my-6">
+              <div className="flex bg-gray-900/50 p-1 rounded-full border border-gray-700">
+                  <button 
+                      onClick={() => setApiProvider('gemini')}
+                      className={`w-1/2 py-2 text-sm font-semibold rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${apiProvider === 'gemini' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}
+                  >
+                      Google Gemini
+                  </button>
+                  <button 
+                      onClick={() => setApiProvider('openrouter')}
+                      className={`w-1/2 py-2 text-sm font-semibold rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${apiProvider === 'openrouter' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}
+                  >
+                      OpenRouter
+                  </button>
               </div>
-              <button
-                onClick={handleSelectKeyFromStudio}
-                className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
-              >
-                Select API Key from AI Studio
-              </button>
+          </div>
+
+          {apiProvider === 'gemini' ? (
+            <>
+              <p className="text-sm text-yellow-400/80 mb-6 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+                <strong>Important:</strong> For full functionality, especially for video generation, please use an API key from a Google Cloud project with{' '}
+                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-yellow-300">
+                  billing enabled
+                </a>. Free-tier keys may have limited access and quotas.
+              </p>
+              <ApiKeyInput
+                apiKeyInput={apiKeyInput}
+                setApiKeyInput={handleApiKeyInputChange}
+                onSave={handleSaveKey}
+                onClear={handleClearKey}
+                disabled={false}
+              />
+              <div className="my-4">
+                <ErrorDisplay message={error} />
+              </div>
+              {isStudioEnvironment && (
+                <>
+                  <div className="relative flex items-center justify-center my-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-600"></div>
+                    </div>
+                    <div className="relative px-2 bg-gray-800 text-sm text-gray-400">OR</div>
+                  </div>
+                  <button
+                    onClick={handleSelectKeyFromStudio}
+                    className="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300"
+                  >
+                    Select API Key from AI Studio
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+             <>
+              <ApiKeyInput
+                apiKeyInput=""
+                setApiKeyInput={() => {}}
+                onSave={() => {}}
+                onClear={() => {}}
+                disabled={true}
+              />
+               <div className="mt-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg text-center">
+                 <p className="text-blue-300 text-sm">
+                   Full OpenRouter integration is coming soon! This will allow you to use various models from different providers.
+                   <br/><br/>
+                   For now, please select the <strong>Google Gemini</strong> provider to use the app.
+                 </p>
+               </div>
             </>
           )}
         </div>
