@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot, ProviderConfig } from './services/geminiService';
+import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot } from './services/geminiService';
 import type { ImageData } from './types';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
@@ -11,7 +11,6 @@ import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector, VoiceSelector } from './components/VideoPlayer';
 import { Modal } from './components/Modal';
-import { ApiKeyInput } from './components/ApiKeyInput';
 
 const PERSON_ACTIONS = [
   "caminando",
@@ -25,8 +24,7 @@ const PERSON_ACTIONS = [
 type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 
 const App: React.FC = () => {
-  const [apiKey, setApiKey] = useState<string | null>(() => localStorage.getItem('gemini-api-key'));
-  const [apiKeyInput, setApiKeyInput] = useState<string>('');
+  const [hasSelectedKey, setHasSelectedKey] = useState<boolean | null>(null);
   const [mode, setMode] = useState<AppMode>('image');
   const [prompt, setPrompt] = useState<string>('');
   const [similarity, setSimilarity] = useState<number | null>(null);
@@ -54,18 +52,35 @@ const App: React.FC = () => {
 
   const previousAssetUrls = useRef<string[]>([]);
 
-  const handleSaveApiKey = () => {
-    if (apiKeyInput.trim()) {
-      const key = apiKeyInput.trim();
-      localStorage.setItem('gemini-api-key', key);
-      setApiKey(key);
-      setApiKeyInput('');
-    }
-  };
+  useEffect(() => {
+    const checkApiKey = async () => {
+      // @ts-ignore
+      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        // @ts-ignore
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasSelectedKey(hasKey);
+      } else {
+        // Fallback for running outside AI Studio, assumes key is in env
+        setHasSelectedKey(true);
+      }
+    };
+    checkApiKey();
+  }, []);
 
-  const handleClearApiKey = () => {
-    localStorage.removeItem('gemini-api-key');
-    setApiKey(null);
+  const handleConnectClick = async () => {
+    // @ts-ignore
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      try {
+        // @ts-ignore
+        await window.aistudio.openSelectKey();
+        // Optimistically set to true, assuming the user selected a key.
+        // The API call will fail if they closed the dialog.
+        setHasSelectedKey(true);
+      } catch (e) {
+        console.error("Error opening API key selection:", e);
+        setError("Could not open the API key selection dialog.");
+      }
+    }
   };
 
   useEffect(() => {
@@ -109,18 +124,12 @@ const App: React.FC = () => {
   }, [singleImageData, mode]);
   
   const callApiService = async <T,>(
-    serviceCall: (providerConfig: ProviderConfig, ...args: any[]) => Promise<T>, 
+    serviceCall: (...args: any[]) => Promise<T>, 
     ...args: any[]
   ): Promise<T | null> => {
-    if (!apiKey) {
-        setError("La clave de API no está configurada.");
-        return null;
-    }
-    const providerConfig: ProviderConfig = { provider: 'gemini', apiKey };
-
     setError(null);
     try {
-      return await serviceCall(providerConfig, ...args);
+      return await serviceCall(...args);
     } catch (err: unknown) {
       if (err instanceof Error) {
         const errText = err.message.toLowerCase();
@@ -133,14 +142,17 @@ const App: React.FC = () => {
           errText.includes("resource_exhausted") ||
           errText.includes("invalid api key")
         ) {
+          if (errText.includes("requested entity was not found")) {
+            setHasSelectedKey(false);
+          }
           setError(
             <>
               La clave de API ha excedido su cuota, no es válida o no tiene permisos. Para el video de Gemini, se requiere una clave de un proyecto con{' '}
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
                 facturación habilitada
-              </a>
-              . Por favor, revisa la configuración de tu proyecto.{' '}
-              <button onClick={handleClearApiKey} className="font-bold underline hover:text-red-200 ml-2">Introduce una clave diferente.</button>
+              </a>{' '}
+              requerida. Por favor, verifica la configuración de tu proyecto.{' '}
+              <button onClick={handleConnectClick} className="font-bold underline hover:text-red-200 ml-2">Selecciona una clave diferente.</button>
             </>
           );
         } else {
@@ -432,31 +444,45 @@ const App: React.FC = () => {
     );
   };
 
-  if (!apiKey) {
+  if (hasSelectedKey === null) {
     return (
-        <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-2xl text-center">
-            <Header />
-            <div className="mt-8 text-gray-300 space-y-4">
-                <p>
-                    Para usar esta aplicación, necesitas una clave de API de Google Gemini. Algunas funciones, como la generación de video, requieren una clave de un proyecto con la facturación habilitada.
-                </p>
-                <p>
-                    Tu clave de API se guarda de forma segura en el almacenamiento local de tu navegador y solo se envía a Google.
-                </p>
-            </div>
-            <ApiKeyInput
-              apiKeyInput={apiKeyInput}
-              setApiKeyInput={setApiKeyInput}
-              onSave={handleSaveApiKey}
-              onClear={() => setApiKeyInput('')}
-              providerName="Google Gemini"
-              getKeyUrl="https://ai.google.dev/gemini-api/docs/api-key"
-            />
-          </div>
-        </div>
-      );
+      <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
+        <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-pink-500"></div>
+        <p className="mt-4 text-lg">Checking API Key...</p>
+      </div>
+    );
   }
+
+  if (!hasSelectedKey) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-2xl text-center">
+          <Header />
+          <div className="mt-8 text-gray-300 space-y-4">
+            <p>
+              Para usar esta aplicación, por favor conecta tu cuenta de Google AI Studio.
+            </p>
+            <p>
+              Funciones avanzadas como la generación de video requieren una clave de API de un proyecto con{' '}
+              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-pink-400">
+                facturación habilitada
+              </a>.
+            </p>
+          </div>
+          <div className="mt-8">
+            <button
+              onClick={handleConnectClick}
+              className="px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-full hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300 shadow-lg"
+            >
+              Conectar con Google AI Studio
+            </button>
+          </div>
+          <ErrorDisplay message={error} />
+        </div>
+      </div>
+    );
+  }
+
 
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center p-4 sm:p-6 lg:p-8">
@@ -464,12 +490,12 @@ const App: React.FC = () => {
         <Header />
         
         <div className="my-6 flex justify-center items-center bg-gray-800 p-1 rounded-full shadow-lg w-fit mx-auto flex-wrap">
-          <ModeButton targetMode="image" label="Imagen y Traducción" />
+          <ModeButton targetMode="image" label="Image & Translation" />
           <ModeButton targetMode="productShot" label="Foto de Producto" />
-          <ModeButton targetMode="video" label="Generar Video" />
-          <ModeButton targetMode="recipe" label="Generar Receta" />
+          <ModeButton targetMode="video" label="Video Generation" />
+          <ModeButton targetMode="recipe" label="Recipe Generation" />
           <ModeButton targetMode="linkRecipe" label="Receta desde URL" />
-          <ModeButton targetMode="speech" label="Texto a Voz" />
+          <ModeButton targetMode="speech" label="Text-to-Speech" />
         </div>
 
         <main className="p-6 bg-gray-800/50 rounded-2xl shadow-2xl backdrop-blur-sm border border-gray-700/50">
@@ -666,9 +692,6 @@ const App: React.FC = () => {
                 <div className="flex-grow w-full">
                   <GenerateButton onClick={handleGenerate} disabled={isLoading || isTranslating || !canGenerate} mode={mode} />
                 </div>
-                <button onClick={handleClearApiKey} className="text-sm text-gray-400 hover:text-white transition-colors py-2 px-4 rounded-full hover:bg-gray-700/50">
-                  Cambiar Clave de API
-                </button>
             </div>
           </div>
         </main>
