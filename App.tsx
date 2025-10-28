@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot } from './services/geminiService';
+import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot, ProviderConfig } from './services/geminiService';
 import type { ImageData } from './types';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
@@ -20,6 +20,14 @@ const PERSON_ACTIONS = [
   "sentado en un banco",
   "bailando",
   "tomando una foto",
+];
+
+const OPENROUTER_MODELS = [
+    { id: 'google/gemini-flash-1.5', name: 'Google: Gemini Flash 1.5' },
+    { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o Mini' },
+    { id: 'anthropic/claude-3-haiku', name: 'Anthropic: Claude 3 Haiku' },
+    { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B Instruct' },
+    { id: 'meta-llama/llama-3-8b-instruct', name: 'Meta: Llama 3 8B Instruct' },
 ];
 
 type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
@@ -51,35 +59,42 @@ const App: React.FC = () => {
   const [translationResult, setTranslationResult] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
 
-  const [apiKeyInput, setApiKeyInput] = useState<string>('');
-  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-  const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
+  // API Key Management
   const [apiProvider, setApiProvider] = useState('gemini');
-  
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState<string>('');
+  const [hasGeminiApiKey, setHasGeminiApiKey] = useState<boolean>(false);
+  const [openRouterApiKeyInput, setOpenRouterApiKeyInput] = useState<string>('');
+  const [hasOpenRouterApiKey, setHasOpenRouterApiKey] = useState<boolean>(false);
+  const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState(OPENROUTER_MODELS[0].id);
+  const [isStudioEnvironment, setIsStudioEnvironment] = useState<boolean>(false);
+
   const previousAssetUrls = useRef<string[]>([]);
 
+  const hasActiveApiKey = (apiProvider === 'gemini' && hasGeminiApiKey) || (apiProvider === 'openrouter' && hasOpenRouterApiKey);
+
   useEffect(() => {
-    // Check for AI Studio environment and if a key is already stored.
     const isStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
     setIsStudioEnvironment(isStudio);
     
-    const storedKey = localStorage.getItem('gemini-api-key');
-    if (storedKey) {
-      setHasApiKey(true);
+    const storedGeminiKey = localStorage.getItem('gemini-api-key');
+    if (storedGeminiKey) {
+      setHasGeminiApiKey(true);
     } else if (isStudio) {
-      // If in studio, check if a key has been selected via the native dialog
       window.aistudio.hasSelectedApiKey().then(keySelected => {
         if (keySelected) {
-           // We'll use a placeholder to signify a key is managed by the environment
            localStorage.setItem('gemini-api-key', 'aistudio_managed_key');
-           setHasApiKey(true);
+           setHasGeminiApiKey(true);
         }
       });
+    }
+
+    const storedOpenRouterKey = localStorage.getItem('openrouter-api-key');
+    if (storedOpenRouterKey) {
+        setHasOpenRouterApiKey(true);
     }
   }, []);
 
   useEffect(() => {
-    // Clean up old object URLs to prevent memory leaks
     previousAssetUrls.current.forEach(url => {
         if (url.startsWith('blob:')) {
             URL.revokeObjectURL(url);
@@ -87,7 +102,6 @@ const App: React.FC = () => {
     });
     previousAssetUrls.current = assetUrls;
 
-    // Cleanup on component unmount
     return () => {
         assetUrls.forEach(url => {
             if (url.startsWith('blob:')) {
@@ -98,7 +112,7 @@ const App: React.FC = () => {
   }, [assetUrls]);
 
   useEffect(() => {
-    if (mode !== 'image' || !hasApiKey) {
+    if (mode !== 'image' || !hasActiveApiKey) {
       setContextualPersonSuggestion(null);
       setIsAnalyzing(false);
       return;
@@ -109,10 +123,10 @@ const App: React.FC = () => {
         setContextualPersonSuggestion(null);
         setError(null);
         try {
-          const apiKey = localStorage.getItem('gemini-api-key');
-          if (!apiKey) throw new Error("API Key not found in storage.");
-          const suggestion = await analyzeImage(apiKey, singleImageData);
-          setContextualPersonSuggestion(suggestion);
+          const suggestion = await callApiService(analyzeImage, singleImageData);
+          if (suggestion) {
+              setContextualPersonSuggestion(suggestion);
+          }
         } catch (e) {
           console.error("Image analysis failed:", e);
           if (e instanceof Error) {
@@ -131,12 +145,22 @@ const App: React.FC = () => {
       }
     };
     analyze();
-  }, [singleImageData, mode, hasApiKey]);
+  }, [singleImageData, mode, hasActiveApiKey, apiProvider, selectedOpenRouterModel]);
   
-  const handleSaveKey = () => {
-    if (apiKeyInput.trim()) {
-      localStorage.setItem('gemini-api-key', apiKeyInput.trim());
-      setHasApiKey(true);
+  const handleSaveGeminiKey = () => {
+    if (geminiApiKeyInput.trim()) {
+      localStorage.setItem('gemini-api-key', geminiApiKeyInput.trim());
+      setHasGeminiApiKey(true);
+      setError(null);
+    } else {
+      setError("Please enter a valid API key.");
+    }
+  };
+
+  const handleSaveOpenRouterKey = () => {
+    if (openRouterApiKeyInput.trim()) {
+      localStorage.setItem('openrouter-api-key', openRouterApiKeyInput.trim());
+      setHasOpenRouterApiKey(true);
       setError(null);
     } else {
       setError("Please enter a valid API key.");
@@ -144,43 +168,55 @@ const App: React.FC = () => {
   };
 
   const handleClearKey = () => {
-    localStorage.removeItem('gemini-api-key');
-    setHasApiKey(false);
-    setApiKeyInput('');
+    if (apiProvider === 'gemini') {
+        localStorage.removeItem('gemini-api-key');
+        setHasGeminiApiKey(false);
+        setGeminiApiKeyInput('');
+    } else {
+        localStorage.removeItem('openrouter-api-key');
+        setHasOpenRouterApiKey(false);
+        setOpenRouterApiKeyInput('');
+    }
   };
 
   const handleSelectKeyFromStudio = async () => {
     setError(null);
     if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
       await window.aistudio.openSelectKey();
-      // Use a placeholder to signify a key is managed by the environment
       localStorage.setItem('gemini-api-key', 'aistudio_managed_key');
-      setHasApiKey(true);
+      setHasGeminiApiKey(true);
     } else {
       setError("API Key selection is unavailable in this environment.");
     }
   };
-  
-  const handleApiKeyInputChange = (value: string) => {
-    setApiKeyInput(value);
-    if (error) {
-        setError(null); // Clear previous errors on new input
-    }
-  };
 
-  const callGeminiService = async <T,>(
-    serviceCall: (apiKey: string, ...args: any[]) => Promise<T>, 
+  const callApiService = async <T,>(
+    serviceCall: (providerConfig: ProviderConfig, ...args: any[]) => Promise<T>, 
     ...args: any[]
   ): Promise<T | null> => {
-    const apiKey = localStorage.getItem('gemini-api-key');
-    if (!apiKey) {
-      setError("Please provide an API key to proceed.");
-      setHasApiKey(false);
-      return null;
+    let providerConfig: ProviderConfig;
+
+    if (apiProvider === 'gemini') {
+        const apiKey = localStorage.getItem('gemini-api-key');
+        if (!apiKey) {
+            setError("Please provide a Gemini API key to proceed.");
+            setHasGeminiApiKey(false);
+            return null;
+        }
+        providerConfig = { provider: 'gemini', apiKey };
+    } else { // openrouter
+        const apiKey = localStorage.getItem('openrouter-api-key');
+        if (!apiKey) {
+            setError("Please provide an OpenRouter API key to proceed.");
+            setHasOpenRouterApiKey(false);
+            return null;
+        }
+        providerConfig = { provider: 'openrouter', apiKey, model: selectedOpenRouterModel };
     }
+
     setError(null);
     try {
-      return await serviceCall(apiKey, ...args);
+      return await serviceCall(providerConfig, ...args);
     } catch (err: unknown) {
       if (err instanceof Error) {
         const errText = err.message.toLowerCase();
@@ -190,14 +226,15 @@ const App: React.FC = () => {
           errText.includes("requested entity was not found") ||
           errText.includes("permission") ||
           errText.includes("quota") ||
-          errText.includes("resource_exhausted")
+          errText.includes("resource_exhausted") ||
+          errText.includes("invalid api key")
         ) {
           setError(
             <>
-              The provided API key has exceeded its quota or is invalid. Please clear it and enter a different key from a project with{' '}
+              The provided API key has exceeded its quota, is invalid, or lacks permissions. Please clear it and try another. For Gemini video, a key from a project with{' '}
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
                 billing enabled
-              </a>.
+              </a> is required.
             </>
           );
           handleClearKey();
@@ -252,7 +289,7 @@ const App: React.FC = () => {
     setAssetUrls([]);
     setAssetType(null);
 
-    const base64ImageData = await callGeminiService(generateImage, finalPrompt, singleImageData);
+    const base64ImageData = await callApiService(generateImage, finalPrompt, singleImageData);
     
     if (base64ImageData) {
       const objectUrl = `data:image/png;base64,${base64ImageData}`;
@@ -270,7 +307,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setAssetUrls([]);
     setAssetType(null);
-    const videoBlob = await callGeminiService(generateVideo, prompt, singleImageData);
+    const videoBlob = await callApiService(generateVideo, prompt, singleImageData);
     if(videoBlob) {
       const objectUrl = URL.createObjectURL(videoBlob);
       setAssetUrls([objectUrl]);
@@ -287,7 +324,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setAssetUrls([]);
     setAssetType(null);
-    const recipeText = await callGeminiService(generateRecipe, prompt);
+    const recipeText = await callApiService(generateRecipe, prompt);
     if(recipeText) {
       setAssetUrls([recipeText]);
       setAssetType('recipe');
@@ -313,7 +350,7 @@ const App: React.FC = () => {
     setAssetType(null);
     setSources(null);
     setRecipeImageUrl(null);
-    const result = await callGeminiService(generateRecipeFromLink, url);
+    const result = await callApiService(generateRecipeFromLink, url);
     if(result) {
       setAssetUrls([result.formattedRecipe]);
       setAssetType('recipe');
@@ -330,7 +367,7 @@ const App: React.FC = () => {
     }
     setIsTranslating(true);
     setTranslationResult(null);
-    const translatedText = await callGeminiService(translateText, textToTranslate, targetLanguage, stylizeAndCorrect);
+    const translatedText = await callApiService(translateText, textToTranslate, targetLanguage, stylizeAndCorrect);
     if(translatedText) {
       setTranslationResult(translatedText);
     }
@@ -345,7 +382,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setAssetUrls([]);
     setAssetType(null);
-    const base64Audio = await callGeminiService(generateSpeech, prompt, selectedVoice);
+    const base64Audio = await callApiService(generateSpeech, prompt, selectedVoice);
     if(base64Audio) {
       const audioBlob = createWavBlobFromBase64(base64Audio);
       const objectUrl = URL.createObjectURL(audioBlob);
@@ -365,7 +402,7 @@ const App: React.FC = () => {
     setAssetUrls([]);
     setAssetType(null);
 
-    const result = await callGeminiService(generateProductShot, prompt, productImages, inspirationImageData);
+    const result = await callApiService(generateProductShot, prompt, productImages, inspirationImageData);
     
     if (result && result.length > 0) {
       const objectUrls = result.map(base64 => `data:image/png;base64,${base64}`);
@@ -454,10 +491,29 @@ const App: React.FC = () => {
 
 
   const baseCanGenerate = prompt.trim().length > 0;
-  const imageEditCanGenerate = mode === 'image' && !!singleImageData && (removeText || addPerson || similarity !== null);
+  
+  const isTextOnlyMode = mode === 'recipe' || mode === 'linkRecipe';
+  
+  const isProviderCompatibleWithMode = () => {
+    if (apiProvider === 'gemini') return true;
+    // OpenRouter is only compatible with text-based generation/translation
+    const compatibleModes: AppMode[] = ['recipe'];
+    if (mode === 'image') return true; // Image mode has translation which is text-based
+    return compatibleModes.includes(mode);
+  }
+
+  const imageGenCanGenerate = mode === 'image' && (prompt.trim().length > 0 || (!!singleImageData && (removeText || addPerson || similarity !== null)));
   const productShotCanGenerate = mode === 'productShot' && productImages.length > 0;
   const linkRecipeCanGenerate = mode === 'linkRecipe' && prompt.trim().length > 0;
-  const canGenerate = hasApiKey && (baseCanGenerate || imageEditCanGenerate || productShotCanGenerate || linkRecipeCanGenerate);
+
+  const canGenerate = hasActiveApiKey && isProviderCompatibleWithMode() && (
+      (mode === 'image' && apiProvider === 'gemini' && imageGenCanGenerate) ||
+      (mode === 'recipe' && baseCanGenerate) ||
+      (mode === 'video' && apiProvider === 'gemini' && baseCanGenerate) ||
+      (mode === 'productShot' && apiProvider === 'gemini' && productShotCanGenerate) ||
+      (mode === 'linkRecipe' && apiProvider === 'gemini' && linkRecipeCanGenerate) ||
+      (mode === 'speech' && apiProvider === 'gemini' && baseCanGenerate)
+  );
 
   const getPlaceholderText = () => {
     switch (mode) {
@@ -471,7 +527,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (!hasApiKey) {
+  if (!hasActiveApiKey) {
     return (
       <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-md text-center bg-gray-800/50 p-8 rounded-2xl shadow-2xl border border-gray-700/50">
@@ -508,11 +564,12 @@ const App: React.FC = () => {
                 </a>. Free-tier keys may have limited access and quotas.
               </p>
               <ApiKeyInput
-                apiKeyInput={apiKeyInput}
-                setApiKeyInput={handleApiKeyInputChange}
-                onSave={handleSaveKey}
+                providerName="Gemini"
+                getKeyUrl="https://ai.google.dev/gemini-api/docs/api-key"
+                apiKeyInput={geminiApiKeyInput}
+                setApiKeyInput={setGeminiApiKeyInput}
+                onSave={handleSaveGeminiKey}
                 onClear={handleClearKey}
-                disabled={false}
               />
               <div className="my-4">
                 <ErrorDisplay message={error} />
@@ -537,19 +594,38 @@ const App: React.FC = () => {
           ) : (
              <>
               <ApiKeyInput
-                apiKeyInput=""
-                setApiKeyInput={() => {}}
-                onSave={() => {}}
-                onClear={() => {}}
-                disabled={true}
+                providerName="OpenRouter"
+                getKeyUrl="https://openrouter.ai/keys"
+                apiKeyInput={openRouterApiKeyInput}
+                setApiKeyInput={setOpenRouterApiKeyInput}
+                onSave={handleSaveOpenRouterKey}
+                onClear={handleClearKey}
               />
+                <div className="my-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <label htmlFor="model-select" className="block text-sm font-medium text-gray-300 mb-2">
+                        Select a Model
+                    </label>
+                    <select
+                        id="model-select"
+                        value={selectedOpenRouterModel}
+                        onChange={(e) => setSelectedOpenRouterModel(e.target.value)}
+                        className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-md focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors duration-200"
+                    >
+                        {OPENROUTER_MODELS.map(model => (
+                            <option key={model.id} value={model.id}>{model.name}</option>
+                        ))}
+                    </select>
+                </div>
                <div className="mt-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg text-center">
                  <p className="text-blue-300 text-sm">
-                   Full OpenRouter integration is coming soon! This will allow you to use various models from different providers.
+                   OpenRouter can be used for text-based tasks like Recipe Generation and Translation.
                    <br/><br/>
-                   For now, please select the <strong>Google Gemini</strong> provider to use the app.
+                   For Image/Video/Audio features, please select the <strong>Google Gemini</strong> provider.
                  </p>
                </div>
+                <div className="my-4">
+                    <ErrorDisplay message={error} />
+                </div>
             </>
           )}
         </div>
@@ -557,30 +633,35 @@ const App: React.FC = () => {
     );
   }
 
+  const isCurrentModeIncompatibleWithProvider = !isProviderCompatibleWithMode();
+  
+  const ModeButton = ({ targetMode, label, disabled = false }: { targetMode: AppMode; label: string, disabled?: boolean }) => {
+    const isIncompatible = disabled || (apiProvider === 'openrouter' && (targetMode === 'video' || targetMode === 'speech' || targetMode === 'productShot' || targetMode === 'linkRecipe'));
+    const title = isIncompatible ? `This mode is only available with the Gemini API` : `Switch to ${label} mode`;
+    return (
+        <button 
+            onClick={() => handleModeChange(targetMode)} 
+            disabled={isIncompatible}
+            title={title}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === targetMode ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'} ${isIncompatible ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            {label}
+        </button>
+    );
+  };
+
+
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center p-4 sm:p-6 lg:p-8">
       <div className="w-full max-w-4xl">
         <Header />
         
         <div className="my-6 flex justify-center items-center bg-gray-800 p-1 rounded-full shadow-lg w-fit mx-auto flex-wrap">
-          <button onClick={() => handleModeChange('image')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'image' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
-            Image & Translation
-          </button>
-           <button onClick={() => handleModeChange('productShot')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'productShot' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
-            Foto de Producto
-          </button>
-          <button onClick={() => handleModeChange('video')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'video' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
-            Video Generation
-          </button>
-          <button onClick={() => handleModeChange('recipe')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'recipe' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
-            Recipe Generation
-          </button>
-           <button onClick={() => handleModeChange('linkRecipe')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'linkRecipe' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
-            Receta desde URL
-          </button>
-          <button onClick={() => handleModeChange('speech')} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-50 ${mode === 'speech' ? 'bg-pink-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'}`}>
-            Text-to-Speech
-          </button>
+          <ModeButton targetMode="image" label="Image & Translation" />
+          <ModeButton targetMode="productShot" label="Foto de Producto" />
+          <ModeButton targetMode="video" label="Video Generation" />
+          <ModeButton targetMode="recipe" label="Recipe Generation" />
+          <ModeButton targetMode="linkRecipe" label="Receta desde URL" />
+          <ModeButton targetMode="speech" label="Text-to-Speech" />
         </div>
 
         <main className="p-6 bg-gray-800/50 rounded-2xl shadow-2xl backdrop-blur-sm border border-gray-700/50">
@@ -603,7 +684,7 @@ const App: React.FC = () => {
                 <ImageUploader 
                   label={mode === 'image' ? "2. Add a base image (Optional)" : "2. Upload an image (Optional for video)"}
                   setImageData={setSingleImageData} 
-                  disabled={isLoading || isTranslating} 
+                  disabled={isLoading || isTranslating || isCurrentModeIncompatibleWithProvider}
                   key={`${mode}-main`} 
                 />
               )}
@@ -614,13 +695,13 @@ const App: React.FC = () => {
                     onImagesChange={setProductImages}
                     images={productImages}
                     multiple={true}
-                    disabled={isLoading}
+                    disabled={isLoading || isCurrentModeIncompatibleWithProvider}
                     key="productShot-main"
                   />
                   <ImageUploader 
                     label="3. Sube una imagen de inspiración (Opcional)"
                     setImageData={setInspirationImageData} 
-                    disabled={isLoading} 
+                    disabled={isLoading || isCurrentModeIncompatibleWithProvider}
                     key="productShot-inspiration" 
                   />
                 </>
@@ -699,7 +780,7 @@ const App: React.FC = () => {
                   <VoiceSelector
                     selectedVoice={selectedVoice}
                     setSelectedVoice={setSelectedVoice}
-                    disabled={isLoading}
+                    disabled={isLoading || isCurrentModeIncompatibleWithProvider}
                   />
                 </div>
                )}

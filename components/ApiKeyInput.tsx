@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 
 interface ApiKeyInputProps {
@@ -5,16 +6,17 @@ interface ApiKeyInputProps {
     setApiKeyInput: (value: string) => void;
     onSave: () => void;
     onClear: () => void;
-    disabled: boolean;
+    providerName: string;
+    getKeyUrl: string;
 }
 
-export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKeyInput, onSave, onClear, disabled }) => {
+export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKeyInput, onSave, onClear, providerName, getKeyUrl }) => {
     const [isVisible, setIsVisible] = useState(false);
     
     return (
         <div className="my-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50 backdrop-blur-sm">
             <label htmlFor="api-key-input" className="block text-sm font-medium text-gray-300 mb-2">
-                Your Gemini API Key
+                Your {providerName} API Key
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-grow">
@@ -23,10 +25,9 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
                         type={isVisible ? 'text' : 'password'}
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="Enter your API key here"
-                        disabled={disabled}
+                        placeholder={`Enter your ${providerName} API key here`}
                         className="w-full p-2 pr-10 bg-gray-700/50 border border-gray-600 rounded-md focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors duration-200"
-                        aria-label="Gemini API Key Input"
+                        aria-label={`${providerName} API Key Input`}
                     />
                     <button
                         type="button"
@@ -48,14 +49,12 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
                 </div>
                 <button 
                     onClick={onSave} 
-                    disabled={disabled} 
                     className="px-4 py-2 text-sm font-semibold text-white bg-pink-600 rounded-md hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-colors duration-200 disabled:opacity-50"
                 >
                     Save Key
                 </button>
                 <button 
                     onClick={onClear} 
-                    disabled={disabled} 
                     className="px-4 py-2 text-sm font-semibold text-gray-300 bg-gray-700 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-gray-500 transition-colors duration-200 disabled:opacity-50"
                 >
                     Clear
@@ -63,12 +62,12 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
             </div>
             <p className="text-center mt-3">
               <a
-                href="https://ai.google.dev/gemini-api/docs/api-key"
+                href={getKeyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-pink-400 hover:text-pink-300 transition-colors"
               >
-                Don't have a key? Get your Gemini API key here.
+                Don't have a key? Get your {providerName} API key here.
               </a>
             </p>
         </div>

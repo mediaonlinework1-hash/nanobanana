@@ -1,5 +1,11 @@
+
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { ImageData } from '../types';
+
+export type ProviderConfig = 
+  | { provider: 'gemini'; apiKey: string; }
+  | { provider: 'openrouter'; apiKey: string; model: string; };
+
 
 // The client is initialized with the key provided by the user.
 function getAiClient(apiKey: string): GoogleGenAI {
@@ -59,9 +65,43 @@ export const createWavBlobFromBase64 = (base64Audio: string): Blob => {
   return createWavBlob(pcmData, 24000, 1);
 };
 
+async function callOpenRouter(apiKey: string, model: string, prompt: string, isJson: boolean = false): Promise<string> {
+    const body: any = {
+        model: model,
+        messages: [{ role: "user", content: prompt }],
+    };
 
-export const generateImage = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
-  const ai = getAiClient(apiKey);
+    if (isJson) {
+        body.response_format = { type: "json_object" };
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': window.location.hostname,
+            'X-Title': 'Nano Banana',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenRouter API error: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content?.trim() || '';
+}
+
+
+export const generateImage = async (providerConfig: ProviderConfig, prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
+  if (providerConfig.provider === 'openrouter') {
+    throw new Error("Image generation is not supported with OpenRouter in this application.");
+  }
+
+  const ai = getAiClient(providerConfig.apiKey);
   const parts: any[] = [{ text: prompt }];
 
   if (imageData) {
@@ -95,8 +135,12 @@ export const generateImage = async (apiKey: string, prompt: string, imageData: I
   throw new Error("Image generation failed to produce an image.");
 };
 
-export const generateProductShot = async (apiKey: string, prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null): Promise<string[] | undefined> => {
-    const ai = getAiClient(apiKey);
+export const generateProductShot = async (providerConfig: ProviderConfig, prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null): Promise<string[] | undefined> => {
+    if (providerConfig.provider === 'openrouter') {
+      throw new Error("Product Shot generation is not supported with OpenRouter in this application.");
+    }
+
+    const ai = getAiClient(providerConfig.apiKey);
     
     let finalPrompt = `You are an expert AI product photographer. The user has provided one or more images of a SINGLE product, likely from different angles. Your task is to use all these images to get a complete understanding of the product's shape, texture, and details. Then, create professional, high-quality product shots suitable for an e-commerce website.
 
@@ -171,10 +215,15 @@ Your output must contain ONLY the generated image(s).`;
 };
 
 
-export const analyzeImage = async (apiKey: string, imageData: ImageData): Promise<string> => {
-  const ai = getAiClient(apiKey);
+export const analyzeImage = async (providerConfig: ProviderConfig, imageData: ImageData): Promise<string> => {
   const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
+  
+  if (providerConfig.provider === 'openrouter') {
+      const fullPrompt = `${prompt} \n\n Image data is not available, but analyze based on a hypothetical common scene.`;
+      return callOpenRouter(providerConfig.apiKey, providerConfig.model, fullPrompt);
+  }
 
+  const ai = getAiClient(providerConfig.apiKey);
   const parts = [
     {
       inlineData: {
@@ -198,9 +247,13 @@ export const analyzeImage = async (apiKey: string, imageData: ImageData): Promis
   return analysisText;
 };
 
-export const generateVideo = async (apiKey: string, prompt: string, imageData: ImageData | null): Promise<Blob> => {
-  const ai = getAiClient(apiKey);
-  const envApiKey = apiKey === 'aistudio_managed_key' ? process.env.API_KEY : apiKey;
+export const generateVideo = async (providerConfig: ProviderConfig, prompt: string, imageData: ImageData | null): Promise<Blob> => {
+  if (providerConfig.provider === 'openrouter') {
+    throw new Error("Video generation is not supported with OpenRouter in this application.");
+  }
+
+  const ai = getAiClient(providerConfig.apiKey);
+  const envApiKey = providerConfig.apiKey === 'aistudio_managed_key' ? process.env.API_KEY : providerConfig.apiKey;
   if (!envApiKey) {
     throw new Error("API key not found.");
   }
@@ -247,37 +300,42 @@ export const generateVideo = async (apiKey: string, prompt: string, imageData: I
 };
 
 
-export const generateRecipe = async (apiKey: string, prompt: string): Promise<string> => {
-    const ai = getAiClient(apiKey);
+export const generateRecipe = async (providerConfig: ProviderConfig, prompt: string): Promise<string> => {
     const fullPrompt = `Generate a recipe based on this prompt: "${prompt}". Your response must be a JSON object with the following schema: { "title": "string", "description": "string", "ingredients": ["string"], "instructions": ["string"] }. Make sure the description is brief.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING, description: "Title of the recipe." },
-            description: { type: Type.STRING, description: "A short, enticing description of the recipe." },
-            ingredients: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "List of ingredients."
-            },
-            instructions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Step-by-step instructions."
+    let recipeJsonString: string;
+    if (providerConfig.provider === 'openrouter') {
+        recipeJsonString = await callOpenRouter(providerConfig.apiKey, providerConfig.model, fullPrompt, true);
+    } else {
+        const ai = getAiClient(providerConfig.apiKey);
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: fullPrompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING, description: "Title of the recipe." },
+                description: { type: Type.STRING, description: "A short, enticing description of the recipe." },
+                ingredients: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: "List of ingredients."
+                },
+                instructions: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: "Step-by-step instructions."
+                },
+              },
+              required: ['title', 'ingredients', 'instructions'],
             },
           },
-          required: ['title', 'ingredients', 'instructions'],
-        },
-      },
-    });
+        });
+        recipeJsonString = response.text;
+    }
 
-    const recipeJsonString = response.text;
     if (!recipeJsonString) {
       throw new Error("Recipe generation failed to produce a result.");
     }
@@ -306,8 +364,12 @@ export const generateRecipe = async (apiKey: string, prompt: string): Promise<st
     }
   };
 
-  export const generateRecipeFromLink = async (apiKey: string, url: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
-    const ai = getAiClient(apiKey);
+  export const generateRecipeFromLink = async (providerConfig: ProviderConfig, url: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
+    if (providerConfig.provider === 'openrouter') {
+        throw new Error("Recipe generation from a link is not supported with OpenRouter in this application.");
+    }
+
+    const ai = getAiClient(providerConfig.apiKey);
     const fullPrompt = `Using your search tool, access the following URL and extract the recipe details: "${url}".
     Find the main image associated with the recipe and include its public URL.
     Format your response as a single, clean JSON object with the following structure: { "title": "string", "description": "string", "imageUrl": "string", "ingredients": ["string"], "instructions": ["string"] }.
@@ -371,8 +433,7 @@ export const generateRecipe = async (apiKey: string, prompt: string): Promise<st
     }
   };
   
-export const translateText = async (apiKey: string, text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
-  const ai = getAiClient(apiKey);
+export const translateText = async (providerConfig: ProviderConfig, text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
   let prompt: string;
 
   if (stylize) {
@@ -401,12 +462,18 @@ export const translateText = async (apiKey: string, text: string, targetLanguage
     `;
   }
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt,
-  });
+  let translatedText: string;
+  if (providerConfig.provider === 'openrouter') {
+    translatedText = await callOpenRouter(providerConfig.apiKey, providerConfig.model, prompt);
+  } else {
+    const ai = getAiClient(providerConfig.apiKey);
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+    });
+    translatedText = response.text.trim();
+  }
 
-  const translatedText = response.text.trim();
   if (!translatedText) {
     throw new Error("Translation failed to produce a result.");
   }
@@ -414,8 +481,11 @@ export const translateText = async (apiKey: string, text: string, targetLanguage
   return translatedText;
 };
 
-export const generateSpeech = async (apiKey: string, text: string, voice: string): Promise<string | undefined> => {
-    const ai = getAiClient(apiKey);
+export const generateSpeech = async (providerConfig: ProviderConfig, text: string, voice: string): Promise<string | undefined> => {
+    if (providerConfig.provider === 'openrouter') {
+      throw new Error("Text-to-Speech is not supported with OpenRouter in this application.");
+    }
+    const ai = getAiClient(providerConfig.apiKey);
 
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
