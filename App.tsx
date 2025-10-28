@@ -11,6 +11,7 @@ import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector, VoiceSelector } from './components/VideoPlayer';
 import { Modal } from './components/Modal';
+import { ApiKeyInput } from './components/ApiKeyInput';
 
 const PERSON_ACTIONS = [
   "caminando",
@@ -24,7 +25,10 @@ const PERSON_ACTIONS = [
 type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
 
 const App: React.FC = () => {
+  const [isAiStudio, setIsAiStudio] = useState<boolean>(false);
   const [hasSelectedKey, setHasSelectedKey] = useState<boolean | null>(null);
+  const [apiKey, setApiKey] = useState<string>('');
+
   const [mode, setMode] = useState<AppMode>('image');
   const [prompt, setPrompt] = useState<string>('');
   const [similarity, setSimilarity] = useState<number | null>(null);
@@ -53,28 +57,41 @@ const App: React.FC = () => {
   const previousAssetUrls = useRef<string[]>([]);
 
   useEffect(() => {
+    // @ts-ignore
+    const runningInAiStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
+    setIsAiStudio(runningInAiStudio);
+
     const checkApiKey = async () => {
-      // @ts-ignore
-      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+      if (runningInAiStudio) {
         // @ts-ignore
         const hasKey = await window.aistudio.hasSelectedApiKey();
         setHasSelectedKey(hasKey);
       } else {
-        // Fallback for running outside AI Studio, assumes key is in env
-        setHasSelectedKey(true);
+        // Running on Vercel or other external host
+        const storedApiKey = localStorage.getItem('gemini-api-key');
+        if (storedApiKey) {
+          setApiKey(storedApiKey);
+          setHasSelectedKey(true); // Treat stored key as a "selected" key
+        } else {
+          setHasSelectedKey(false);
+        }
       }
     };
     checkApiKey();
   }, []);
+  
+  const handleSaveApiKey = (key: string) => {
+    localStorage.setItem('gemini-api-key', key);
+    setApiKey(key);
+    setHasSelectedKey(true);
+  };
 
   const handleConnectClick = async () => {
     // @ts-ignore
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+    if (isAiStudio && window.aistudio.openSelectKey) {
       try {
         // @ts-ignore
         await window.aistudio.openSelectKey();
-        // Optimistically set to true, assuming the user selected a key.
-        // The API call will fail if they closed the dialog.
         setHasSelectedKey(true);
       } catch (e) {
         console.error("Error opening API key selection:", e);
@@ -110,7 +127,7 @@ const App: React.FC = () => {
       if (singleImageData) {
         setIsAnalyzing(true);
         setContextualPersonSuggestion(null);
-        const suggestion = await callApiService(analyzeImage, singleImageData);
+        const suggestion = await callApiService(analyzeImage, singleImageData, apiKey);
         if (suggestion) {
             setContextualPersonSuggestion(suggestion);
         }
@@ -121,7 +138,7 @@ const App: React.FC = () => {
       }
     };
     analyze();
-  }, [singleImageData, mode]);
+  }, [singleImageData, mode, apiKey]);
   
   const callApiService = async <T,>(
     serviceCall: (...args: any[]) => Promise<T>, 
@@ -129,7 +146,13 @@ const App: React.FC = () => {
   ): Promise<T | null> => {
     setError(null);
     try {
-      return await serviceCall(...args);
+      const currentApiKey = isAiStudio ? process.env.API_KEY! : apiKey;
+      if (!currentApiKey) {
+        setError("API key is not set.");
+        setHasSelectedKey(false);
+        return null;
+      }
+      return await serviceCall(...args, currentApiKey);
     } catch (err: unknown) {
       if (err instanceof Error) {
         const errText = err.message.toLowerCase();
@@ -142,17 +165,18 @@ const App: React.FC = () => {
           errText.includes("resource_exhausted") ||
           errText.includes("invalid api key")
         ) {
-          if (errText.includes("requested entity was not found")) {
-            setHasSelectedKey(false);
-          }
+          setHasSelectedKey(false); // Force re-authentication/re-entry
+          const changeKeyAction = isAiStudio 
+            ? <button onClick={handleConnectClick} className="font-bold underline hover:text-red-200 ml-2">Selecciona una clave diferente.</button>
+            : <button onClick={() => setHasSelectedKey(false)} className="font-bold underline hover:text-red-200 ml-2">Ingresa una clave diferente.</button>;
+
           setError(
             <>
               La clave de API ha excedido su cuota, no es válida o no tiene permisos. Para el video de Gemini, se requiere una clave de un proyecto con{' '}
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
                 facturación habilitada
               </a>{' '}
-              requerida. Por favor, verifica la configuración de tu proyecto.{' '}
-              <button onClick={handleConnectClick} className="font-bold underline hover:text-red-200 ml-2">Selecciona una clave diferente.</button>
+              requerida. Por favor, verifica la configuración de tu proyecto. {changeKeyAction}
             </>
           );
         } else {
@@ -448,7 +472,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
         <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-pink-500"></div>
-        <p className="mt-4 text-lg">Checking API Key...</p>
+        <p className="mt-4 text-lg">Initializing...</p>
       </div>
     );
   }
@@ -458,26 +482,34 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-gray-900 text-white font-sans flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-2xl text-center">
           <Header />
-          <div className="mt-8 text-gray-300 space-y-4">
-            <p>
-              Para usar esta aplicación, por favor conecta tu cuenta de Google AI Studio.
-            </p>
-            <p>
-              Funciones avanzadas como la generación de video requieren una clave de API de un proyecto con{' '}
-              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-pink-400">
-                facturación habilitada
-              </a>.
-            </p>
+          {isAiStudio ? (
+             <>
+              <div className="mt-8 text-gray-300 space-y-4">
+                <p>
+                  Para usar esta aplicación, por favor conecta tu cuenta de Google AI Studio.
+                </p>
+                <p>
+                  Funciones avanzadas como la generación de video requieren una clave de API de un proyecto con{' '}
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-pink-400">
+                    facturación habilitada
+                  </a>.
+                </p>
+              </div>
+              <div className="mt-8">
+                <button
+                  onClick={handleConnectClick}
+                  className="px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-full hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300 shadow-lg"
+                >
+                  Conectar con Google AI Studio
+                </button>
+              </div>
+            </>
+          ) : (
+            <ApiKeyInput onSave={handleSaveApiKey} />
+          )}
+          <div className="mt-6">
+            <ErrorDisplay message={error} />
           </div>
-          <div className="mt-8">
-            <button
-              onClick={handleConnectClick}
-              className="px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-full hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300 shadow-lg"
-            >
-              Conectar con Google AI Studio
-            </button>
-          </div>
-          <ErrorDisplay message={error} />
         </div>
       </div>
     );

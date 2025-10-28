@@ -3,10 +3,9 @@ import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { ImageData } from '../types';
 
 // The client is initialized just-in-time before an API call.
-function getAiClient(): GoogleGenAI {
-  const apiKey = process.env.API_KEY;
+function getAiClient(apiKey: string): GoogleGenAI {
   if (!apiKey) {
-    throw new Error("API key is not configured. Please select one in Google AI Studio.");
+    throw new Error("API key is not configured.");
   }
   return new GoogleGenAI({ apiKey });
 }
@@ -61,8 +60,8 @@ export const createWavBlobFromBase64 = (base64Audio: string): Blob => {
 
 // --- Main Service Functions ---
 
-export const generateImage = async (prompt: string, imageData: ImageData | null): Promise<string | undefined> => {
-  const ai = getAiClient();
+export const generateImage = async (prompt: string, imageData: ImageData | null, apiKey: string): Promise<string | undefined> => {
+  const ai = getAiClient(apiKey);
   const parts: any[] = [{ text: prompt }];
 
   if (imageData) {
@@ -96,8 +95,8 @@ export const generateImage = async (prompt: string, imageData: ImageData | null)
   throw new Error("Image generation failed to produce an image.");
 };
 
-export const generateProductShot = async (prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null): Promise<string[] | undefined> => {
-    const ai = getAiClient();
+export const generateProductShot = async (prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null, apiKey: string): Promise<string[] | undefined> => {
+    const ai = getAiClient(apiKey);
     
     let finalPrompt = `You are an expert AI product photographer. The user has provided one or more images of a SINGLE product, likely from different angles. Your task is to use all these images to get a complete understanding of the product's shape, texture, and details. Then, create professional, high-quality product shots suitable for an e-commerce website.
 
@@ -146,10 +145,10 @@ Your output must contain ONLY the generated image(s).`;
 };
 
 
-export const analyzeImage = async (imageData: ImageData): Promise<string> => {
+export const analyzeImage = async (imageData: ImageData, apiKey: string): Promise<string> => {
   const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
   
-  const ai = getAiClient();
+  const ai = getAiClient(apiKey);
   const parts = [
     { inlineData: { data: imageData.imageBytes, mimeType: imageData.mimeType } },
     { text: prompt },
@@ -161,10 +160,8 @@ export const analyzeImage = async (imageData: ImageData): Promise<string> => {
   return analysisText;
 };
 
-export const generateVideo = async (prompt: string, imageData: ImageData | null): Promise<Blob> => {
-  const ai = getAiClient();
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API key not found.");
+export const generateVideo = async (prompt: string, imageData: ImageData | null, apiKey: string): Promise<Blob> => {
+  const ai = getAiClient(apiKey);
   
   const request: { model: string; prompt: string; image?: { imageBytes: string; mimeType: string; }; config: { numberOfVideos: number; }; } = {
     model: 'veo-3.1-fast-generate-preview',
@@ -198,10 +195,10 @@ export const generateVideo = async (prompt: string, imageData: ImageData | null)
 };
 
 
-export const generateRecipe = async (prompt: string): Promise<string> => {
+export const generateRecipe = async (prompt: string, apiKey: string): Promise<string> => {
     const fullPrompt = `Generate a recipe based on this prompt: "${prompt}". Your response must be a JSON object with the following schema: { "title": "string", "description": "string", "ingredients": ["string"], "instructions": ["string"] }. Make sure the description is brief.`;
 
-    const ai = getAiClient();
+    const ai = getAiClient(apiKey);
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: fullPrompt,
@@ -237,14 +234,14 @@ export const generateRecipe = async (prompt: string): Promise<string> => {
     }
   };
 
-  export const generateRecipeFromLink = async (url: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
+  export const generateRecipeFromLink = async (url: string, apiKey: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
     const fullPrompt = `Access your knowledge of the recipe at the following URL and extract its details: "${url}".
     Find the main image associated with the recipe and include its public URL.
     Format your response as a single, clean JSON object with the following structure: { "title": "string", "description": "string", "imageUrl": "string", "ingredients": ["string"], "instructions": ["string"] }.
     Ensure the description is brief. If you cannot find a recipe, return a JSON object with an "error" field.
     Your response must contain ONLY the JSON object.`;
 
-    const ai = getAiClient();
+    const ai = getAiClient(apiKey);
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: fullPrompt,
@@ -278,7 +275,7 @@ export const generateRecipe = async (prompt: string): Promise<string> => {
     }
   };
   
-export const translateText = async (text: string, targetLanguage: string, stylize: boolean): Promise<string> => {
+export const translateText = async (text: string, targetLanguage: string, stylize: boolean, apiKey: string): Promise<string> => {
   let prompt: string;
   if (stylize) {
     prompt = `First, fact-check and correct the following text. Then, rewrite it in an engaging, friendly style with emojis. Finally, translate the stylized text into ${targetLanguage}. Your final output MUST BE ONLY the translated text. Text: """${text}"""`;
@@ -286,7 +283,7 @@ export const translateText = async (text: string, targetLanguage: string, styliz
     prompt = `Translate the following text to ${targetLanguage}. Provide only the translated text. Text: """${text}"""`;
   }
 
-  const ai = getAiClient();
+  const ai = getAiClient(apiKey);
   const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
   const translatedText = response.text.trim();
 
@@ -294,8 +291,8 @@ export const translateText = async (text: string, targetLanguage: string, styliz
   return translatedText;
 };
 
-export const generateSpeech = async (text: string, voice: string): Promise<string | undefined> => {
-    const ai = getAiClient();
+export const generateSpeech = async (text: string, voice: string, apiKey: string): Promise<string | undefined> => {
+    const ai = getAiClient(apiKey);
 
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
