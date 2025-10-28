@@ -113,7 +113,7 @@ const App: React.FC = () => {
     ...args: any[]
   ): Promise<T | null> => {
     if (!apiKey) {
-        setError("API Key is not set.");
+        setError("La clave de API no está configurada.");
         return null;
     }
     const providerConfig: ProviderConfig = { provider: 'gemini', apiKey };
@@ -135,19 +135,19 @@ const App: React.FC = () => {
         ) {
           setError(
             <>
-              The API key has exceeded its quota, is invalid, or lacks permissions. For Gemini video, a key from a project with{' '}
+              La clave de API ha excedido su cuota, no es válida o no tiene permisos. Para el video de Gemini, se requiere una clave de un proyecto con{' '}
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
-                billing enabled
-              </a>{' '}
-              is required. Please check your project configuration.{' '}
-              <button onClick={handleClearApiKey} className="font-bold underline hover:text-red-200 ml-2">Enter a different key.</button>
+                facturación habilitada
+              </a>
+              . Por favor, revisa la configuración de tu proyecto.{' '}
+              <button onClick={handleClearApiKey} className="font-bold underline hover:text-red-200 ml-2">Introduce una clave diferente.</button>
             </>
           );
         } else {
            setError(err.message);
         }
       } else {
-        setError('An unknown error occurred during the API call.');
+        setError('Ocurrió un error desconocido durante la llamada a la API.');
       }
       return null;
     }
@@ -439,10 +439,10 @@ const App: React.FC = () => {
             <Header />
             <div className="mt-8 text-gray-300 space-y-4">
                 <p>
-                    To use this application, you need a Google Gemini API key. Some features, like video generation, may require a key from a project with billing enabled.
+                    Para usar esta aplicación, necesitas una clave de API de Google Gemini. Algunas funciones, como la generación de video, requieren una clave de un proyecto con la facturación habilitada.
                 </p>
                 <p>
-                    Your API key is stored securely in your browser's local storage and is only sent to Google.
+                    Tu clave de API se guarda de forma segura en el almacenamiento local de tu navegador y solo se envía a Google.
                 </p>
             </div>
             <ApiKeyInput
@@ -464,12 +464,12 @@ const App: React.FC = () => {
         <Header />
         
         <div className="my-6 flex justify-center items-center bg-gray-800 p-1 rounded-full shadow-lg w-fit mx-auto flex-wrap">
-          <ModeButton targetMode="image" label="Image & Translation" />
+          <ModeButton targetMode="image" label="Imagen y Traducción" />
           <ModeButton targetMode="productShot" label="Foto de Producto" />
-          <ModeButton targetMode="video" label="Video Generation" />
-          <ModeButton targetMode="recipe" label="Recipe Generation" />
+          <ModeButton targetMode="video" label="Generar Video" />
+          <ModeButton targetMode="recipe" label="Generar Receta" />
           <ModeButton targetMode="linkRecipe" label="Receta desde URL" />
-          <ModeButton targetMode="speech" label="Text-to-Speech" />
+          <ModeButton targetMode="speech" label="Texto a Voz" />
         </div>
 
         <main className="p-6 bg-gray-800/50 rounded-2xl shadow-2xl backdrop-blur-sm border border-gray-700/50">
@@ -667,7 +667,7 @@ const App: React.FC = () => {
                   <GenerateButton onClick={handleGenerate} disabled={isLoading || isTranslating || !canGenerate} mode={mode} />
                 </div>
                 <button onClick={handleClearApiKey} className="text-sm text-gray-400 hover:text-white transition-colors py-2 px-4 rounded-full hover:bg-gray-700/50">
-                  Change API Key
+                  Cambiar Clave de API
                 </button>
             </div>
           </div>

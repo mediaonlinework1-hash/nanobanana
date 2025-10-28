@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface GenerateButtonProps {
@@ -7,26 +8,22 @@ interface GenerateButtonProps {
 }
 
 export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disabled, mode }) => {
-  let loadingText = 'Generating...';
-  let buttonText = 'Generate';
+  let loadingText = 'Generando...';
+  let buttonText = 'Generar';
 
   if (mode === 'image') {
-    loadingText = 'Generating...';
-    buttonText = 'Generate Image';
+    buttonText = 'Generar Imagen';
   } else if (mode === 'video') {
-    loadingText = 'Rendering...';
-    buttonText = 'Generate Video';
+    loadingText = 'Renderizando...';
+    buttonText = 'Generar Video';
   } else if (mode === 'recipe') {
-    loadingText = 'Generating...';
-    buttonText = 'Generate Recipe';
+    buttonText = 'Generar Receta';
   } else if (mode === 'linkRecipe') {
     loadingText = 'Extrayendo...';
     buttonText = 'Extraer Receta';
   } else if (mode === 'speech') {
-    loadingText = 'Generating...';
-    buttonText = 'Generate Speech';
+    buttonText = 'Generar Audio';
   } else if (mode === 'productShot') {
-    loadingText = 'Generando...';
     buttonText = 'Generar Foto de Producto';
   }
 

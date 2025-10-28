@@ -16,7 +16,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
     return (
         <div className="my-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50 backdrop-blur-sm">
             <label htmlFor="api-key-input" className="block text-sm font-medium text-gray-300 mb-2">
-                Your {providerName} API Key
+                Tu Clave de API de {providerName}
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-grow">
@@ -25,15 +25,15 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
                         type={isVisible ? 'text' : 'password'}
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder={`Enter your ${providerName} API key here`}
+                        placeholder={`Introduce tu clave de API de ${providerName} aquí`}
                         className="w-full p-2 pr-10 bg-gray-700/50 border border-gray-600 rounded-md focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors duration-200"
-                        aria-label={`${providerName} API Key Input`}
+                        aria-label={`Entrada de Clave de API de ${providerName}`}
                     />
                     <button
                         type="button"
                         onClick={() => setIsVisible(!isVisible)}
                         className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-200"
-                        aria-label={isVisible ? "Hide API key" : "Show API key"}
+                        aria-label={isVisible ? "Ocultar clave de API" : "Mostrar clave de API"}
                     >
                         {isVisible ? (
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -51,13 +51,13 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
                     onClick={onSave} 
                     className="px-4 py-2 text-sm font-semibold text-white bg-pink-600 rounded-md hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-colors duration-200 disabled:opacity-50"
                 >
-                    Save Key
+                    Guardar Clave
                 </button>
                 <button 
                     onClick={onClear} 
                     className="px-4 py-2 text-sm font-semibold text-gray-300 bg-gray-700 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-gray-500 transition-colors duration-200 disabled:opacity-50"
                 >
-                    Clear
+                    Limpiar
                 </button>
             </div>
             <p className="text-center mt-3">
@@ -67,7 +67,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ apiKeyInput, setApiKey
                 rel="noopener noreferrer"
                 className="text-sm text-pink-400 hover:text-pink-300 transition-colors"
               >
-                Don't have a key? Get your {providerName} API key here.
+                ¿No tienes una clave? Obtén tu clave de API de {providerName} aquí.
               </a>
             </p>
         </div>
