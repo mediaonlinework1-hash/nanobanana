@@ -476,8 +476,14 @@ const App: React.FC = () => {
           <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent mb-4">
             Welcome to Nano Banana
           </h2>
-          <p className="text-gray-300 mb-6">
+          <p className="text-gray-300 mb-2">
             To use this application, please enter your Gemini API key.
+          </p>
+          <p className="text-sm text-yellow-400/80 mb-6 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+            <strong>Important:</strong> For full functionality, especially for video generation, please use an API key from a Google Cloud project with{' '}
+            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-yellow-300">
+              billing enabled
+            </a>. Free-tier keys may have limited access and quotas.
           </p>
           <ApiKeyInput
             apiKeyInput={apiKeyInput}
