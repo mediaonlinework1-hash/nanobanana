@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot } from './services/geminiService';
+import { generateImage, generateVideo, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateRecipeFromLink, generateProductShot, generateBlogPostFromLink, generateRecipeCardFromLink } from './services/geminiService';
 import type { ImageData } from './types';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
@@ -22,7 +22,7 @@ const PERSON_ACTIONS = [
   "tomando una foto",
 ];
 
-type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
+type AppMode = 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
 
 const App: React.FC = () => {
   const [isAiStudio, setIsAiStudio] = useState<boolean>(false);
@@ -38,7 +38,7 @@ const App: React.FC = () => {
   const [inspirationImageData, setInspirationImageData] = useState<ImageData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [assetUrls, setAssetUrls] = useState<string[]>([]);
-  const [assetType, setAssetType] = useState<'image' | 'video' | 'recipe' | 'audio' | 'productShot' | null>(null);
+  const [assetType, setAssetType] = useState<'image' | 'video' | 'recipe' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null>(null);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [addPerson, setAddPerson] = useState<boolean>(false);
@@ -54,6 +54,13 @@ const App: React.FC = () => {
   const [translationResult, setTranslationResult] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
 
+  // State for Blog Post mode
+  const [primaryKeyword, setPrimaryKeyword] = useState<string>('');
+  const [secondaryKeywords, setSecondaryKeywords] = useState<string>('');
+  const [internalLinks, setInternalLinks] = useState<string>('');
+  const [faqs, setFaqs] = useState<string>('');
+
+
   const previousAssetUrls = useRef<string[]>([]);
 
   useEffect(() => {
@@ -68,7 +75,8 @@ const App: React.FC = () => {
         setHasSelectedKey(hasKey);
       } else {
         // Running on Vercel or other external host
-        const storedApiKey = localStorage.getItem('gemini-api-key');
+        
+        const storedApiKey = process.env.GEMINI_API_KEY;
         if (storedApiKey) {
           setApiKey(storedApiKey);
           setHasSelectedKey(true); // Treat stored key as a "selected" key
@@ -300,6 +308,58 @@ const App: React.FC = () => {
     }
     setIsLoading(false);
   };
+  
+  const handleRecipeCardGeneration = async () => {
+    const url = prompt.trim();
+    if (!url) {
+      setError('Por favor, introduce una URL para crear una tarjeta de receta.');
+      return;
+    }
+     try {
+      new URL(url);
+    } catch (_) {
+      setError('Por favor, introduce una URL válida.');
+      return;
+    }
+    
+    setIsLoading(true);
+    setAssetUrls([]);
+    setAssetType(null);
+    const result = await callApiService(generateRecipeCardFromLink, url);
+    if (result) {
+      setAssetUrls([JSON.stringify(result)]);
+      setAssetType('recipeCard');
+    }
+    setIsLoading(false);
+  };
+
+  const handleBlogPostGeneration = async () => {
+    const url = prompt.trim();
+    if (!url) {
+      setError('Por favor, introduce una URL para generar el post.');
+      return;
+    }
+    try {
+      new URL(url);
+    } catch (_) {
+      setError('Por favor, introduce una URL válida.');
+      return;
+    }
+    if (!primaryKeyword.trim()) {
+      setError('Por favor, introduce una palabra clave principal.');
+      return;
+    }
+
+    setIsLoading(true);
+    setAssetUrls([]);
+    setAssetType(null);
+    const result = await callApiService(generateBlogPostFromLink, url, primaryKeyword, secondaryKeywords, internalLinks, faqs);
+    if (result) {
+      setAssetUrls([JSON.stringify(result)]);
+      setAssetType('blogPost');
+    }
+    setIsLoading(false);
+  };
 
   const handleTranslateClick = async () => {
     if (!textToTranslate.trim()) {
@@ -366,6 +426,10 @@ const App: React.FC = () => {
       handleSpeechGeneration();
     } else if (mode === 'productShot') {
       handleProductShotGeneration();
+    } else if (mode === 'blogPost') {
+      handleBlogPostGeneration();
+    } else if (mode === 'recipeCard') {
+      handleRecipeCardGeneration();
     }
   };
   
@@ -390,6 +454,11 @@ const App: React.FC = () => {
       setRecipeImageUrl(null);
       setTextToTranslate('');
       setTranslationResult(null);
+      // Reset blog post state
+      setPrimaryKeyword('');
+      setSecondaryKeywords('');
+      setInternalLinks('');
+      setFaqs('');
     }
   };
 
@@ -436,6 +505,8 @@ const App: React.FC = () => {
   const imageGenCanGenerate = mode === 'image' && (prompt.trim().length > 0 || (!!singleImageData && (removeText || addPerson || similarity !== null)));
   const productShotCanGenerate = mode === 'productShot' && productImages.length > 0;
   const linkRecipeCanGenerate = mode === 'linkRecipe' && prompt.trim().length > 0;
+  const blogPostCanGenerate = mode === 'blogPost' && prompt.trim().length > 0 && primaryKeyword.trim().length > 0;
+  const recipeCardCanGenerate = mode === 'recipeCard' && prompt.trim().length > 0;
 
   const canGenerate = (
       (mode === 'image' && imageGenCanGenerate) ||
@@ -443,6 +514,8 @@ const App: React.FC = () => {
       (mode === 'video' && baseCanGenerate) ||
       (mode === 'productShot' && productShotCanGenerate) ||
       (mode === 'linkRecipe' && linkRecipeCanGenerate) ||
+      (mode === 'blogPost' && blogPostCanGenerate) ||
+      (mode === 'recipeCard' && recipeCardCanGenerate) ||
       (mode === 'speech' && baseCanGenerate)
   );
 
@@ -452,8 +525,10 @@ const App: React.FC = () => {
       case 'video': return 'Your generated video will appear here.';
       case 'recipe': return 'Your generated recipe will appear here.';
       case 'linkRecipe': return 'Your recipe extracted from the URL will appear here.';
+      case 'recipeCard': return 'Your generated recipe card will appear here.';
       case 'speech': return 'Your generated audio will appear here.';
       case 'productShot': return 'Tus fotos de producto profesionales aparecerán aquí.';
+      case 'blogPost': return 'Your generated blog post will appear here.';
       default: return 'Your generated asset will appear here.';
     }
   };
@@ -527,6 +602,8 @@ const App: React.FC = () => {
           <ModeButton targetMode="video" label="Video Generation" />
           <ModeButton targetMode="recipe" label="Recipe Generation" />
           <ModeButton targetMode="linkRecipe" label="Receta desde URL" />
+          <ModeButton targetMode="recipeCard" label="Tarjeta de Receta" />
+          <ModeButton targetMode="blogPost" label="Blog Post desde URL" />
           <ModeButton targetMode="speech" label="Text-to-Speech" />
         </div>
 
@@ -546,6 +623,29 @@ const App: React.FC = () => {
                 setAddPerson={setAddPerson}
                 mode={mode}
               />
+
+              {mode === 'blogPost' && (
+                  <div className="space-y-4 p-4 rounded-lg bg-gray-700/30 border border-gray-600/50">
+                      <div>
+                          <label htmlFor="primaryKeyword" className="block text-sm font-medium text-gray-300 mb-1">Palabra Clave Principal*</label>
+                          <input type="text" id="primaryKeyword" value={primaryKeyword} onChange={(e) => setPrimaryKeyword(e.target.value)} placeholder="Ej: Receta de Tarta de Manzana Casera" className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-1 focus:ring-pink-500" />
+                      </div>
+                      <div>
+                          <label htmlFor="secondaryKeywords" className="block text-sm font-medium text-gray-300 mb-1">Palabras Clave Secundarias</label>
+                          <input type="text" id="secondaryKeywords" value={secondaryKeywords} onChange={(e) => setSecondaryKeywords(e.target.value)} placeholder="Ej: postre de manzana, tarta fácil, receta de otoño" className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-1 focus:ring-pink-500" />
+                      </div>
+                      <div>
+                          <label htmlFor="internalLinks" className="block text-sm font-medium text-gray-300 mb-1">Enlaces Internos</label>
+                          <textarea id="internalLinks" rows={3} value={internalLinks} onChange={(e) => setInternalLinks(e.target.value)} placeholder="Un enlace por línea, ej:&#10;https://misitio.com/otra-receta&#10;https://misitio.com/sobre-mi" className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-1 focus:ring-pink-500 resize-y"></textarea>
+                      </div>
+                      <div>
+                          <label htmlFor="faqs" className="block text-sm font-medium text-gray-300 mb-1">Preguntas Frecuentes (FAQs)</label>
+                          <textarea id="faqs" rows={4} value={faqs} onChange={(e) => setFaqs(e.target.value)} placeholder="Una pregunta y respuesta por línea, ej:&#10;¿Puedo usar otras manzanas? Sí, las Granny Smith también funcionan bien.&#10;¿Se puede congelar? Sí, se congela perfectamente hasta 3 meses." className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-1 focus:ring-pink-500 resize-y"></textarea>
+                      </div>
+                  </div>
+              )}
+
+
               {(mode === 'image' || mode === 'video') && (
                 <ImageUploader 
                   label={mode === 'image' ? "2. Add a base image (Optional)" : "2. Upload an image (Optional for video)"}
@@ -680,7 +780,7 @@ const App: React.FC = () => {
                         </ul>
                       </div>
                     )}
-                    {assetUrls.length === 1 && assetType !== 'productShot' && (
+                    {assetUrls.length === 1 && assetType !== 'productShot' && assetType !== 'blogPost' && assetType !== 'recipeCard' && (
                       <DownloadButton assetUrl={assetUrls[0]} assetType={assetType} />
                     )}
                   </div>

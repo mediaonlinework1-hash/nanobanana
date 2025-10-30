@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface PromptInputProps {
@@ -12,7 +13,7 @@ interface PromptInputProps {
   contextualPersonSuggestion: string | null;
   addPerson: boolean;
   setAddPerson: (addPerson: boolean) => void;
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
 }
 
 const SIMILARITY_SUGGESTIONS = [25, 50, 75, 100];
@@ -62,6 +63,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     switch (mode) {
       case 'recipe': return '1. Describe the recipe you want to generate';
       case 'linkRecipe': return '1. Pega la URL de la receta';
+      case 'blogPost': return '1. Pega la URL de la receta para generar el post';
+      case 'recipeCard': return '1. Pega la URL para crear una Tarjeta de Receta';
       case 'speech': return '1. Enter the text to convert to speech';
       case 'image': return `1. Describe the image you want to create or edit`;
       case 'productShot': return `1. Describe a specific request (optional)`;
@@ -75,6 +78,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       case 'video': return "e.g., A cinematic shot of a futuristic city at night, rain-slicked streets reflecting neon signs";
       case 'recipe': return "e.g., A quick and easy recipe for vegan pancakes";
       case 'linkRecipe': return "ej., https://www.recetasgratis.net/...";
+      case 'blogPost': return "ej., https://www.mygreatrecipes.com/some-recipe...";
+      case 'recipeCard': return "ej., https://www.allrecipes.com/recipe/24074/alysias-basic-meat-lasagna/";
       case 'speech': return "e.g., The quick brown fox jumps over the lazy dog.";
       case 'productShot': return "e.g., I want a slightly closer image";
       default: return "";
@@ -164,7 +169,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
       <textarea
         id="prompt"
-        rows={mode === 'recipe' || mode === 'speech' ? 8 : (mode === 'linkRecipe' || mode === 'productShot' ? 3 : 4)}
+        rows={mode === 'recipe' || mode === 'speech' ? 8 : (mode === 'linkRecipe' || mode === 'productShot' || mode === 'blogPost' || mode === 'recipeCard' ? 3 : 4)}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         disabled={disabled}

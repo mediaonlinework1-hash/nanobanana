@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 
 const imageLoadingMessages = [
@@ -36,6 +37,24 @@ const linkRecipeLoadingMessages = [
   "Casi lista para servir...",
 ];
 
+const recipeCardLoadingMessages = [
+    "Analizando la página de la receta...",
+    "Extrayendo la imagen principal y los detalles...",
+    "Organizando los ingredientes y las instrucciones...",
+    "Diseñando tu tarjeta de receta...",
+    "¡Casi lista para guardar y compartir!",
+];
+
+const blogPostLoadingMessages = [
+    "Leyendo la receta de la URL...",
+    "Poniéndome el delantal de escritor de Müller...",
+    "Buscando la historia perfecta para esta receta...",
+    "Escribiendo un post que te encantará...",
+    "Optimizando para SEO con un toque de cariño...",
+    "Revisando la gramática y el sabor...",
+    "¡Tu post de blog está casi listo para publicar!",
+];
+
 const translationLoadingMessages = [
   "Consulting with our AI linguists...",
   "Looking up words in a digital dictionary...",
@@ -65,7 +84,7 @@ const productShotLoadingMessages = [
 
 
 interface LoadingIndicatorProps {
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech' | 'productShot';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
 }
 
 export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
@@ -85,6 +104,14 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
       messages = linkRecipeLoadingMessages;
       title = 'Extrayendo tu Receta';
       break;
+    case 'recipeCard':
+      messages = recipeCardLoadingMessages;
+      title = 'Creando tu Tarjeta de Receta';
+      break;
+    case 'blogPost':
+        messages = blogPostLoadingMessages;
+        title = 'Generando tu Blog Post';
+        break;
     case 'translation':
         messages = translationLoadingMessages;
         title = 'Translating Your Text';

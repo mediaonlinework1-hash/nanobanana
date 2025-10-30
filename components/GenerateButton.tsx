@@ -1,9 +1,10 @@
+
 import React from 'react';
 
 interface GenerateButtonProps {
   onClick: () => void;
   disabled: boolean;
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot';
+  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
 }
 
 export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disabled, mode }) => {
@@ -22,12 +23,18 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
   } else if (mode === 'linkRecipe') {
     loadingText = 'Extrayendo...';
     buttonText = 'Extraer Receta';
+  } else if (mode === 'recipeCard') {
+    loadingText = 'Generando Tarjeta...';
+    buttonText = 'Generar Tarjeta de Receta';
   } else if (mode === 'speech') {
     loadingText = 'Generating...';
     buttonText = 'Generate Speech';
   } else if (mode === 'productShot') {
     loadingText = 'Generando...';
     buttonText = 'Generar Foto de Producto';
+  } else if (mode === 'blogPost') {
+    loadingText = 'Generando Post...';
+    buttonText = 'Generar Blog Post';
   }
 
 
@@ -44,7 +51,7 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
 
 interface DownloadButtonProps {
   assetUrl: string | null;
-  assetType: 'image' | 'video' | 'recipe' | 'translation' | 'audio' | 'productShot' | null;
+  assetType: 'image' | 'video' | 'recipe' | 'translation' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null;
 }
 
 export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetType }) => {
