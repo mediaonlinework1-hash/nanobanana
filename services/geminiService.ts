@@ -9,6 +9,15 @@ function getAiClient(apiKey: string): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
 }
 
+// Custom error for user-facing feedback from Gemini
+export class GeminiUserInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeminiUserInputError';
+  }
+}
+
+
 // Helper to decode base64
 const decode = (base64: string) => {
   const binaryString = atob(base64);
@@ -102,479 +111,279 @@ export const generateProductShot = async (prompt: string, productImages: ImageDa
 Analyze the product images to identify all distinct products (there should only be one main product, but it might come in multiple pieces). For EACH product, generate a separate, individual image. If there is only one product, generate one image.
 
 For each generated image, follow these rules:
-1.  Isolate the product completely from its original background.
-2.  Place the product on a clean, seamless, neutral background (e.g., pure white #FFFFFF).
-3.  Ensure professional studio lighting that highlights details without harsh shadows.
-4.  Add a soft, realistic shadow or subtle reflection beneath the product.
-5.  The final output image(s) should be high-resolution, photorealistic, and well-composed.
-6.  Do not add any text, watermarks, or other elements.`;
-    
-    const parts: any[] = [];
-    productImages.forEach(img => parts.push({ inlineData: { data: img.imageBytes, mimeType: img.mimeType } }));
-    if (inspirationImageData) {
-      finalPrompt += `\n\nIMPORTANT INSTRUCTION: A separate image has been provided as an INSPIRATION image. You MUST use this inspiration image as a strong reference for the mood, lighting, style, and composition of the final product shot(s). The goal is to make the new product shots look like they belong in the same photoshoot as the inspiration image.`;
-      parts.push({ inlineData: { data: inspirationImageData.imageBytes, mimeType: inspirationImageData.mimeType } });
-    }
-    
-    finalPrompt += `
-${prompt ? `
-The user has also provided these specific instructions: "${prompt}". Incorporate these into your generation. For example, if they ask for a "closer image", provide a detailed close-up shot of the product.
-` : ''}
-Your output must contain ONLY the generated image(s).`;
+- Place the product on a clean, neutral, solid-color background (e.g., white, light gray, or a complementary pastel color).
+- Ensure the lighting is professional and even, highlighting the product's features without harsh shadows.
+- The product should be in sharp focus.
+- The composition should be centered and aesthetically pleasing.
+- Do NOT add any props, text, logos, or other objects unless explicitly asked for in the user's prompt.
+- If the user provides a specific request in the prompt, prioritize it while still following the general guidelines. For example, if they ask for a 'lifestyle' shot, you can add a relevant, subtle background.
 
-    parts.push({ text: finalPrompt });
+The final output should be a collection of professional product images.`;
+    
+    const parts: any[] = [{ text: finalPrompt }];
+
+    if (prompt) {
+        parts.push({ text: `User's specific request: ${prompt}`});
+    }
+
+    productImages.forEach(img => {
+        parts.push({
+            inlineData: {
+                data: img.imageBytes,
+                mimeType: img.mimeType,
+            },
+        });
+    });
+
+    if (inspirationImageData) {
+        parts.push({ text: "Use this image for style inspiration:" });
+        parts.push({
+             inlineData: {
+                data: inspirationImageData.imageBytes,
+                mimeType: inspirationImageData.mimeType,
+            },
+        });
+    }
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts },
-        config: { responseModalities: [Modality.IMAGE] },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
     });
-
-    const imageDatas: string[] = [];
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData?.data) {
-            imageDatas.push(part.inlineData.data);
+    
+    const base64Images: string[] = [];
+    if (response.candidates && response.candidates.length > 0) {
+        for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+                base64Images.push(part.inlineData.data);
+            }
         }
     }
 
-    if (imageDatas.length > 0) return imageDatas;
+    if (base64Images.length > 0) {
+        return base64Images;
+    }
+    
     const textResponse = response.text;
-    if (textResponse) throw new Error(`Product shot generation failed: ${textResponse}`);
-    throw new Error("Product shot generation failed to produce any images.");
+    if (textResponse) {
+        throw new Error(`Product shot generation failed: ${textResponse}`);
+    }
+
+    throw new Error("Product shot generation failed to produce images.");
 };
 
-
-export const analyzeImage = async (imageData: ImageData, apiKey: string): Promise<string> => {
-  const prompt = `Analyze this image and describe the setting. Based on the setting, suggest a short, simple phrase in Spanish describing a person doing something that would naturally fit in this scene. For example, if it's a beach, suggest 'una persona tomando el sol'. If it's a library, suggest 'una persona leyendo un libro'. Only return the phrase for the person.`;
-  
+export const analyzeImage = async (imageData: ImageData, apiKey: string): Promise<string | null> => {
   const ai = getAiClient(apiKey);
+  const prompt = `Analyze the provided image and suggest a specific type of person to add to it that would make contextual sense. For example, if it's a beach, suggest 'a surfer walking on the sand'. If it's a library, suggest 'a student reading a book'. The suggestion should be a concise phrase.`;
   const parts = [
-    { inlineData: { data: imageData.imageBytes, mimeType: imageData.mimeType } },
     { text: prompt },
+    {
+      inlineData: {
+        data: imageData.imageBytes,
+        mimeType: imageData.mimeType,
+      },
+    },
   ];
 
-  const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: { parts } });
-  const analysisText = response.text.trim();
-  if (!analysisText) throw new Error('Analysis failed to produce a suggestion.');
-  return analysisText;
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: { parts },
+  });
+
+  return response.text.trim();
 };
 
-export const generateVideo = async (prompt: string, imageData: ImageData | null, apiKey:string): Promise<Blob> => {
+
+export const generateRecipe = async (prompt: string, apiKey: string): Promise<string | undefined> => {
   const ai = getAiClient(apiKey);
+  const fullPrompt = `Generate a recipe based on the following description: "${prompt}". 
+  Format the recipe clearly with a title, a brief introduction, a list of ingredients with quantities, and step-by-step instructions.`;
   
-  const request: { model: string; prompt: string; image?: { imageBytes: string; mimeType: string; }; config: { numberOfVideos: number; }; } = {
-    model: 'veo-3.1-fast-generate-preview',
-    prompt: prompt,
-    config: { numberOfVideos: 1 }
-  };
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: fullPrompt,
+  });
 
-  if (imageData) {
-    request.image = { imageBytes: imageData.imageBytes, mimeType: imageData.mimeType };
-  }
-
-  let operation = await ai.models.generateVideos(request);
-
-  while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    operation = await ai.operations.getVideosOperation({operation: operation});
-  }
-
-  const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-  if (!downloadLink) {
-    const errorText = operation.error?.message || "Video generation failed to produce a download link.";
-    throw new Error(errorText);
-  }
-
-  const response = await fetch(`${downloadLink}&key=${apiKey}`);
-  if (!response.ok) {
-    throw new Error(`Failed to download video. Status: ${response.status} ${response.statusText}`);
-  }
-
-  return response.blob();
+  return response.text;
 };
 
-
-export const generateRecipe = async (prompt: string, apiKey: string): Promise<string> => {
-    const fullPrompt = `Generate a recipe based on this prompt: "${prompt}". Your response must be a JSON object with the following schema: { "title": "string", "description": "string", "ingredients": ["string"], "instructions": ["string"] }. Make sure the description is brief.`;
-
+export const translateText = async (text: string, targetLanguage: string, stylize: boolean, apiKey: string): Promise<string | undefined> => {
     const ai = getAiClient(apiKey);
+    let prompt = `Translate the following text to ${targetLanguage}:\n\n---\n${text}\n---`;
+    if (stylize) {
+        prompt += `\n\nAfter translating, review and correct any grammatical errors. Also, adjust the style and tone to sound natural and fluent, as a native speaker would write it.`;
+    }
+
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT, properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-            instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+    });
+    
+    return response.text;
+};
+
+export const generateSpeech = async (prompt: string, voiceName: string, apiKey: string): Promise<string | undefined> => {
+  const ai = getAiClient(apiKey);
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text: prompt }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voiceName },
           },
-          required: ['title', 'ingredients', 'instructions'],
-        },
+      },
+    },
+  });
+  
+  const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (audioData) {
+    return audioData;
+  }
+  
+  throw new Error("Speech generation failed to produce audio.");
+};
+
+export const generateRecipeCardFromLink = async (url: string, apiKey: string): Promise<any | undefined> => {
+    const ai = getAiClient(apiKey);
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-pro',
+      contents: `Analyze the recipe from the URL: ${url}. Extract the following information and return it as a JSON object: title, description (a short, one-sentence summary), the absolute URL of the main recipe image (imageUrl), prep time (prepTime), cook time (cookTime), total number of servings (servings), a list of ingredients (ingredients, as an array of strings), a list of instructions (instructions, as an array of strings), and any additional notes or tips (notes, as an array of strings).`,
+      config: {
+        tools: [{ googleSearch: {} }],
       },
     });
-    const recipeJsonString = response.text;
-
-    if (!recipeJsonString) throw new Error("Recipe generation failed to produce a result.");
     
     try {
-        const recipe = JSON.parse(recipeJsonString);
-        let formattedRecipe = `## ${recipe.title}\n\n`;
-        if (recipe.description) formattedRecipe += `${recipe.description}\n\n`;
-        formattedRecipe += `### Ingredients\n`;
-        recipe.ingredients.forEach((ingredient: string) => { formattedRecipe += `- ${ingredient}\n`; });
-        formattedRecipe += `\n### Instructions\n`;
-        recipe.instructions.forEach((instruction: string, index: number) => { formattedRecipe += `${index + 1}. ${instruction}\n`; });
-        return formattedRecipe;
-    } catch (e) {
-        console.error("Failed to parse recipe JSON:", recipeJsonString);
-        return recipeJsonString;
-    }
-  };
-
-  export const generateRecipeFromLink = async (url: string, apiKey: string): Promise<{ formattedRecipe: string; sources: any[] | undefined; imageUrl: string | undefined; }> => {
-    const fullPrompt = `Access your knowledge of the recipe at the following URL and extract its details: "${url}".
-    Find the main image associated with the recipe and include its public URL.
-    Format your response as a single, clean JSON object with the following structure: { "title": "string", "description": "string", "imageUrl": "string", "ingredients": ["string"], "instructions": ["string"] }.
-    Ensure the description is brief. If you cannot find a recipe, return a JSON object with an "error" field.
-    Your response must contain ONLY the JSON object.`;
-
-    const ai = getAiClient(apiKey);
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
-      config: { tools: [{googleSearch: {}}] },
-    });
-    let recipeJsonString = response.text;
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-
-    if (!recipeJsonString) throw new Error("Recipe extraction failed to produce a result.");
-    
-    if (recipeJsonString.startsWith('```json')) recipeJsonString = recipeJsonString.slice(7, -3).trim();
-    else if (recipeJsonString.startsWith('```')) recipeJsonString = recipeJsonString.slice(3, -3).trim();
-    
-    try {
-        const recipe = JSON.parse(recipeJsonString);
-        if (recipe.error) throw new Error(`Could not get recipe from URL: ${recipe.error}`);
-        if (!recipe.title || !recipe.ingredients || !recipe.instructions) throw new Error("Extracted data is not a valid recipe. Please try another URL.");
-        
-        const imageUrl = recipe.imageUrl;
-        let formattedRecipe = `## ${recipe.title}\n\n`;
-        if (recipe.description) formattedRecipe += `${recipe.description}\n\n`;
-        formattedRecipe += `### Ingredients\n`;
-        recipe.ingredients.forEach((ingredient: string) => { formattedRecipe += `- ${ingredient}\n`; });
-        formattedRecipe += `\n### Instructions\n`;
-        recipe.instructions.forEach((instruction: string, index: number) => { formattedRecipe += `${index + 1}. ${instruction}\n`; });
-        return { formattedRecipe, sources, imageUrl };
-    } catch (e) {
-        console.error("Failed to parse recipe JSON from link:", recipeJsonString, e);
-        if (e instanceof Error && (e.message.startsWith("Could not get recipe") || e.message.startsWith("Extracted data is not"))) throw e; 
-        return { formattedRecipe: `Could not format the recipe, but here is the raw text:\n\n${recipeJsonString}`, sources, imageUrl: undefined };
-    }
-  };
-  
-export const generateRecipeCardFromLink = async (url: string, apiKey: string): Promise<any> => {
-    const fullPrompt = `Analyze the recipe at the provided URL: "${url}". Extract the following information and structure it as a clean JSON object.
-    
-    Your response MUST be ONLY a single JSON object with this exact schema:
-    {
-      "title": "string",
-      "description": "string (a brief, one-sentence summary)",
-      "imageUrl": "string (the full, direct URL to the main recipe image)",
-      "prepTime": "string (e.g., '15 mins')",
-      "cookTime": "string (e.g., '30 mins')",
-      "servings": "string (e.g., '4 people')",
-      "ingredients": ["string", "string", ...],
-      "instructions": ["string", "string", ...],
-      "notes": ["string", "string", ...]
-    }
-
-    If any field is not available on the page (e.g., 'notes'), return it as an empty string or an empty array as appropriate for the schema. Do not invent data. If no recipe is found, return a JSON object with an "error" field.`;
-
-    const ai = getAiClient(apiKey);
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
-      config: { tools: [{googleSearch: {}}] },
-    });
-
-    let jsonString = response.text.trim();
-    if (!jsonString) {
-        throw new Error("Recipe card generation failed to produce a result.");
-    }
-
-    if (jsonString.startsWith('```json')) {
-        jsonString = jsonString.slice(7, -3).trim();
-    } else if (jsonString.startsWith('```')) {
-        jsonString = jsonString.slice(3, -3).trim();
-    }
-    
-    try {
-        const data = JSON.parse(jsonString);
-        if (data.error) {
-            throw new Error(`Could not get recipe from URL: ${data.error}`);
+        let jsonString = response.text.trim();
+        // The model might return the JSON in a markdown code block, so we clean it up.
+        const startIndex = jsonString.indexOf('{');
+        const endIndex = jsonString.lastIndexOf('}');
+        if (startIndex !== -1 && endIndex !== -1) {
+          jsonString = jsonString.substring(startIndex, endIndex + 1);
+        } else {
+            // If we can't find JSON, throw an error.
+            throw new Error("No valid JSON object found in the response.");
         }
-        return data;
+        return JSON.parse(jsonString);
     } catch (e) {
-        console.error("Failed to parse recipe card JSON:", jsonString, e);
-        throw new Error("The AI returned an invalid format for the recipe card. Please try a different URL.");
+        console.error("Failed to parse JSON response from Gemini", e, "Raw text:", response.text);
+        throw new Error("The API returned an invalid data format for the recipe card.");
     }
 };
 
-export const translateText = async (text: string, targetLanguage: string, stylize: boolean, apiKey: string): Promise<string> => {
-  let prompt: string;
-  if (stylize) {
-    prompt = `First, fact-check and correct the following text. Then, rewrite it in an engaging, friendly style with emojis. Finally, translate the stylized text into ${targetLanguage}. Your final output MUST BE ONLY the translated text. Text: """${text}"""`;
-  } else {
-    prompt = `Translate the following text to ${targetLanguage}. Provide only the translated text. Text: """${text}"""`;
-  }
 
-  const ai = getAiClient(apiKey);
-  const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-  const translatedText = response.text.trim();
-
-  if (!translatedText) throw new Error("Translation failed to produce a result.");
-  return translatedText;
-};
-
-export const generateSpeech = async (text: string, voice: string, apiKey: string): Promise<string | undefined> => {
-    const ai = getAiClient(apiKey);
-
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: text }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
-        },
-    });
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (base64Audio) return base64Audio;
-    const textResponse = response.text;
-    if (textResponse) throw new Error(`Speech generation failed: ${textResponse}`);
-    throw new Error("Speech generation failed to produce audio.");
-};
-
-export const generateBlogPostFromLink = async (url: string, primaryKeyword: string, secondaryKeywords: string, internalLinks: string, faqs: string, apiKey: string): Promise<any> => {
+export const generateBlogPostFromLink = async (url: string, keyword: string, language: string, apiKey: string): Promise<{ blogPostContent: string, imageUrl: string | null } | undefined> => {
   const ai = getAiClient(apiKey);
 
-  // Step 1: Extract ingredients and instructions from the URL
-  const extractionPrompt = `You are an expert recipe data extractor. Your task is to visit the provided URL, find the main recipe, and extract ONLY the ingredients and instructions.
-
-URL: "${url}"
-
-Your response MUST be a single, clean JSON object with this exact schema:
-{
-  "ingredients": ["string", "string", ...],
-  "instructions": ["string", "string", ...]
-}
-
-- Do not add any extra text, explanations, or markdown formatting around the JSON.
-- If you cannot access the URL, or if the page does not contain a recipe, you MUST return a JSON object with a descriptive error message like this: { "error": "Could not retrieve recipe content from the provided URL. The site may be blocking access or the page does not contain a valid recipe." }`;
-
-  const extractionResponse = await ai.models.generateContent({
+  // --- Step 1: Fetch content from the URL using the googleSearch tool ---
+  const fetchContentResponse = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
-    contents: extractionPrompt,
-    config: { tools: [{ googleSearch: {} }] },
+    contents: `Please extract the main article content from the provided URL. Focus on the body of the text, ignoring navigation, ads, and footers. The URL is: ${url}`,
+    config: {
+      tools: [{googleSearch: {}}],
+    }
   });
-  let extractedJsonString = extractionResponse.text;
-  if (!extractedJsonString) {
-      throw new Error("Failed to extract recipe data from the URL.");
-  }
-  if (extractedJsonString.startsWith('```json')) extractedJsonString = extractedJsonString.slice(7, -3).trim();
-  else if (extractedJsonString.startsWith('```')) extractedJsonString = extractedJsonString.slice(3, -3).trim();
-
-  const { ingredients, instructions, error } = JSON.parse(extractedJsonString);
-
-  if (error) {
-      throw new Error(`Could not extract recipe from URL: ${error}`);
-  }
-  if (!ingredients || !instructions) {
-      throw new Error("Extraction from URL failed to return ingredients or instructions.");
-  }
   
-  // Step 2: Generate the blog post using the detailed template
-  const blogPostPromptTemplate = `You are Müller from Recipes by Müller, a friendly kitchen guide who believes every meal can spark connection and joy. You’re not just sharing recipes—you’re sharing stories, flavors, and traditions that make everyday cooking special.
+  const sourceContent = fetchContentResponse.text;
+  if (!sourceContent.trim()) {
+    throw new Error("Could not extract content from the provided URL.");
+  }
 
-Brand Voice Guidelines
-
-Core Personality:
-Authentic & Uplifting: Recipes feel like they’re coming from a trusted friend
-Story-Driven & Relatable: Blend culinary tips with personal anecdotes
-Inclusive & Inspiring: Celebrate cooks of all skill levels and cultural backgrounds
-Practical but Warm: Share real, doable recipes without losing heart
-
-Writing Style:
-Conversational and vivid, like talking at a kitchen table
-Use contractions often (it’s, you’ll, we’re)
-Direct and encouraging (“you can make this in no time”)
-Sprinkle in sensory details: aromas, textures, tastes
-Share short personal stories, cultural memories, or ingredient moments
-
-Signature Expressions:
-“This one’s always worth sharing.”
-“You’ll taste the love in every bite.”
-“It’s a simple dish, but it carries big memories.”
-“Cook with curiosity, not just instructions.”
-“Every recipe tells a story.”
-
-Content Requirements
-
-Target Length: 1200 words exactly
-Focus: Complete, SEO-optimized recipe blog post with Müller’s warm tone
-
-Required Input Variables:
-Primary Keyword: {primary_keyword}
-Secondary Keywords: {secondary_keywords}
-Recipe Ingredients: {ingredients}
-Recipe Instructions: {instructions}
-Internal Links: {internal_links}
-FAQs: {faqs}
-
-SEO Requirements
-
-Keyword Implementation:
-Primary keyword in first 100 words (make it bold)
-Primary keyword in H1 title
-Secondary keywords appear naturally in H2/H3s
-Maintain natural keyword density (2–3%)
-Use bolding to highlight key terms for skimmability
-
-Meta Description:
-150–160 characters
-Must include primary keyword and cooking time
-Warm, friendly call-to-action at the end
-
-Header Hierarchy:
-H1: Recipe name with primary keyword
-H2: Main sections (why you’ll love it, what you’ll need, etc.)
-H3: Subsections for variations, FAQs, tips
-
-Complete Blog Post Structure
-1. H1 Title
-<h1>{primary_keyword}</h1>
-
-2. Introduction (150–200 words)
-Start with a storytelling hook from Müller
-Share memory, tradition, or cultural inspiration behind the dish
-Mention primary keyword in first 100 words
-Include 1 internal link naturally from {internal_links}
-End with warm transition: “Let’s get cooking.”
-
-3. Why You’ll Love This {Primary Keyword} (H2)
-3–4 benefits: taste, ease, tradition, versatility
-Blend practical and emotional reasons
-Naturally add secondary keywords
-
-4. What You’ll Need (H2)
-Transform {ingredients}:
-No measurements—focus on ingredient stories and purposes
-Personal notes like “I always choose fresh basil over dried”
-Include substitution tips and cultural alternatives
-Format with <ul> and <li>
-Bold important ingredient keywords
-
-5. Let’s Make It Step by Step (H2)
-Rewrite {instructions} with Müller’s guidance:
-Start steps with strong verbs
-Explain why techniques matter
-Add reassurance: “Don’t stress if it looks rustic”
-Format with <ol> and <li>
-Bold key cooking terms
-
-6. Serving Suggestions (H2)
-Creative, modern, and traditional serving ideas
-Occasion-based (holidays, quick dinner, date night)
-Highlight plating, sides, or drink pairings
-Bold serving-related keywords
-
-7. Make It Your Own (H2)
-3–4 flexible adaptations (dietary swaps, local ingredient twists)
-Cultural spin ideas to personalize
-Use <ul> formatting
-Bold adaptation keywords
-
-8. Kitchen Tips & Tricks (H2)
-Share 3–4 common pitfalls with solutions
-Include personal anecdote about a “cooking fail”
-Teach practical lessons warmly
-Bold technique keywords
-
-9. Storage & Make-Ahead Tips (H2)
-How to refrigerate, freeze, and reheat
-Make-ahead notes for busy cooks
-Bold storage-related keywords
-
-10. More Recipes from My Kitchen (H2)
-Include 3 internal links from {internal_links}
-Write as Müller’s friendly recommendations
-Connect them with flavor, theme, or occasion
-
-11. Frequently Asked Questions (H2)
-Rewrite {faqs} with Müller’s approachable tone:
-Keep answers short, clear, and supportive
-Bold key terms
-Address practical concerns and troubleshooting
-
-12. Final Thoughts (H2)
-Recap why the recipe is worth making
-Use primary keyword naturally one last time
-Encourage personalization and sharing
-Warm sign-off: “Thanks for cooking with me today – Müller”
-
-Yoast SEO Readability Requirements
-Sentences under 20 words when possible
-Active voice (90%+)
-Add transition words for flow
-Short paragraphs (max 3–4 sentences)
-Subheadings every ~300 words
-Use bullet points/lists to break up content
-
-Final Deliverables
-1. Complete Blog Post (1200 words)
-2. Meta Description (150–160 characters, optimized)
-3. Focus Keyphrase Summary
-4. Two Pinterest-Optimized Titles & Descriptions:
-Title 1: Nostalgic/emotional angle
-Title 2: Practical/benefit-focused angle
-Descriptions: 100–200 characters each + hashtags
-
-Quality Checklist
- Primary keyword in first 100 words & H1
- 4 internal links included
- Bolded important keywords
- Brand voice consistent with Müller
- FAQs rewritten in approachable style
- 1200 words exactly
- Meta description optimized
- Pinterest content ready`;
-
-  let finalPrompt = blogPostPromptTemplate;
-  finalPrompt = finalPrompt.replace(/{primary_keyword}/g, primaryKeyword);
-  finalPrompt = finalPrompt.replace('{secondary_keywords}', secondaryKeywords);
-  finalPrompt = finalPrompt.replace('{ingredients}', JSON.stringify(ingredients));
-  finalPrompt = finalPrompt.replace('{instructions}', JSON.stringify(instructions));
-  finalPrompt = finalPrompt.replace(/{internal_links}/g, internalLinks);
-  finalPrompt = finalPrompt.replace(/{faqs}/g, faqs);
-
-  const finalInstruction = `\n\nYour final response MUST be a single, clean JSON object with the following structure: { "blogPostHtml": "string (the full HTML of the blog post, including all h1, h2, ul, ol, li, and p tags)", "metaDescription": "string", "focusKeyphrase": "string", "pinterest": { "title1": "string", "desc1": "string", "title2": "string", "desc2": "string" } }. Do not include any other text or markdown formatting like \`\`\`json around the JSON object.`;
-
-  const blogPostResponse = await ai.models.generateContent({
-    model: 'gemini-2.5-pro', // Using a more powerful model for this complex task
-    contents: finalPrompt + finalInstruction,
+  // --- Step 1.5: Extract Image URL ---
+  const imageResponse = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `From the content of the URL ${url}, what is the absolute URL of the primary, main product or article image? Return only the URL and nothing else.`,
+      config: {
+          tools: [{googleSearch: {}}],
+      },
   });
-
-  let blogPostJsonString = blogPostResponse.text;
-  if (!blogPostJsonString) {
-    throw new Error("Failed to generate blog post.");
-  }
-
+  
+  let imageUrl: string | null = null;
   try {
-    return JSON.parse(blogPostJsonString);
-  } catch(e) {
-    console.error("Failed to parse blog post JSON response:", blogPostJsonString, e);
-    throw new Error("The AI returned an invalid format. Please try again.");
+    const urlText = imageResponse.text.trim();
+    if (urlText.startsWith('http')) {
+      new URL(urlText); 
+      imageUrl = urlText;
+    }
+  } catch (e) {
+    console.warn("Could not parse image URL from response:", imageResponse.text);
   }
+
+  // --- Step 2: Generate the blog post using the fetched content ---
+  const systemInstruction = `
+Rol y Objetivo (Comportamiento del Sistema):
+Eres "BlogBot SEO Pro". Tu única función es recibir una [PALABRA_CLAVE] y un [CONTENIDO_FUENTE].
+Tu Proceso Obligatorio es:
+1. Analizar: Leer y comprender completamente el [CONTENIDO_FUENTE] proporcionado.
+2. Planificar: Usar la [PALABRA_CLAVE] como la nueva palabra clave principal para el post que vas a crear. Identificarás palabras clave secundarias basándote en el [CONTENIDO_FUENTE].
+3. Generar: Escribir un post de blog 100% original y nuevo, inspirado en la información del [CONTENIDO_FUENTE], pero re-enfocado y optimizado para la [PALABRA_CLAVE]. Nunca debes plagiar ni copiar texto directo.
+4. Aplicar Reglas: Durante la generación, debes seguir de forma estricta las siguientes "Instrucciones Base de SEO y Legibilidad".
+
+INSTRUCCIONES BASE DE SEO Y LEGIBILIDAD (Reglas Permanentes):
+Idioma: Debes escribir el post del blog exclusivamente en ${language}. Todo el contenido (título, metadescripción, cuerpo) debe estar en ${language}.
+
+Meta-Elementos (Obligatorios):
+• Título SEO: Menos de 60 caracteres. Debe incluir la [PALABRA_CLAVE].
+• Metadescripción: Menos de 160 caracteres. Persuasiva, incluye la [PALABRA_CLAVE] y un CTA.
+• URL Slug: Corta, en minúsculas, separada por guiones, basada en la [PALABRA_CLAVE].
+
+Estructura y Contenido (Obligatorios):
+• H1: Un solo H1 (título del post), debe incluir la [PALABRA_CLAVE].
+• Longitud: El contenido HTML del post (la parte de 'blogPostHtml') debe tener un mínimo de 1500 caracteres para ser exhaustivo y aportar valor.
+• Jerarquía: Usa H2 para secciones principales y H3 para sub-secciones.
+• Introducción: El primer párrafo debe ser corto e incluir la [PALABRA_CLAVE] de forma natural.
+• Legibilidad: Párrafos muy cortos (máx. 3-4 líneas).
+• Voz: Usa la voz activa.
+• Formato: Usa <strong> para ideas clave y listas (<ul><li>...</li></ul>) cuando sea apropiado.
+• Enlaces (Sugeridos): Incluye placeholders para [Enlace Interno: describir tema] y [Enlace Externo: describir fuente de autoridad].
+• Conclusión: Un resumen final y una Llamada a la Acción (CTA) clara.
+
+Formato de Salida:
+Debes entregar tu respuesta siempre en formato JSON, siguiendo el schema proporcionado.
+  `;
+
+  const userPrompt = `
+PALABRA CLAVE: "${keyword}"
+
+CONTENIDO FUENTE:
+---
+${sourceContent}
+---
+  `;
+
+  const generationResponse = await ai.models.generateContent({
+    model: 'gemini-2.5-pro',
+    contents: userPrompt,
+    config: {
+      systemInstruction: systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          metaElements: {
+            type: Type.OBJECT,
+            properties: {
+              titleSEO: { type: Type.STRING },
+              metaDescription: { type: Type.STRING },
+              urlSlug: { type: Type.STRING },
+            },
+          },
+          blogPostHtml: {
+            type: Type.STRING,
+            description: "El contenido completo del post del blog en formato HTML, comenzando con una etiqueta <h1>."
+          },
+        },
+      },
+    }
+  });
+  
+  return {
+    blogPostContent: generationResponse.text,
+    imageUrl,
+  };
 };

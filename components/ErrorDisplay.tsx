@@ -8,9 +8,11 @@ interface ErrorDisplayProps {
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ message }) => {
   if (!message) return null;
 
+  const isStringMessage = typeof message === 'string';
+
   return (
     <div className="bg-red-900/50 text-red-300 border border-red-700 p-3 rounded-lg text-sm mb-4" role="alert">
-      <span className="font-bold">Error:</span> {message}
+      {isStringMessage && <span className="font-bold">Error:</span>} {message}
     </div>
   );
 };

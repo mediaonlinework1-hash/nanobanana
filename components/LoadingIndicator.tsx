@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 
 const imageLoadingMessages = [
@@ -10,16 +9,6 @@ const imageLoadingMessages = [
   "Almost there, adding the final touches...",
 ];
 
-const videoLoadingMessages = [
-  "Briefing the AI director...",
-  "Setting up the virtual cameras and lighting...",
-  "Action! The AI is rendering the first scenes...",
-  "This can take a few minutes, great cinema takes time...",
-  "Compositing special effects and sound...",
-  "Finalizing the cut, your video is almost ready...",
-  "In the color grading suite, adding final touches...",
-];
-
 const recipeLoadingMessages = [
   "Consulting with our AI chef...",
   "Preheating the virtual oven...",
@@ -27,14 +16,6 @@ const recipeLoadingMessages = [
   "Simmering the prompt...",
   "Plating the recipe...",
   "Your recipe is almost ready to serve!",
-];
-
-const linkRecipeLoadingMessages = [
-  "Navegando a la URL proporcionada...",
-  "Leyendo la receta de la página...",
-  "Identificando ingredientes y pasos...",
-  "Formateando la receta para ti...",
-  "Casi lista para servir...",
 ];
 
 const recipeCardLoadingMessages = [
@@ -46,13 +27,14 @@ const recipeCardLoadingMessages = [
 ];
 
 const blogPostLoadingMessages = [
-    "Leyendo la receta de la URL...",
-    "Poniéndome el delantal de escritor de Müller...",
-    "Buscando la historia perfecta para esta receta...",
-    "Escribiendo un post que te encantará...",
-    "Optimizando para SEO con un toque de cariño...",
-    "Revisando la gramática y el sabor...",
-    "¡Tu post de blog está casi listo para publicar!",
+    "Analizando el contenido de la URL fuente...",
+    "Extrayendo el texto principal del artículo...",
+    "Activando el modo 'BlogBot SEO Pro'...",
+    "Identificando palabras clave secundarias desde el contenido...",
+    "Generando un borrador 100% original...",
+    "Aplicando reglas de SEO y legibilidad...",
+    "Estructurando el post con H1, H2s y párrafos cortos...",
+    "¡Tu post optimizado está casi listo para publicar!",
 ];
 
 const translationLoadingMessages = [
@@ -84,7 +66,7 @@ const productShotLoadingMessages = [
 
 
 interface LoadingIndicatorProps {
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'translation' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
+  mode: 'image' | 'recipe' | 'translation' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
 }
 
 export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
@@ -92,17 +74,9 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
   let title: string;
 
   switch (mode) {
-    case 'video':
-      messages = videoLoadingMessages;
-      title = 'Rendering Your Video';
-      break;
     case 'recipe':
       messages = recipeLoadingMessages;
       title = 'Preparing Your Recipe';
-      break;
-    case 'linkRecipe':
-      messages = linkRecipeLoadingMessages;
-      title = 'Extrayendo tu Receta';
       break;
     case 'recipeCard':
       messages = recipeCardLoadingMessages;

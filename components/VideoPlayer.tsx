@@ -5,28 +5,29 @@ interface LanguageSelectorProps {
   targetLanguage: string;
   setTargetLanguage: (lang: string) => void;
   disabled: boolean;
+  label?: string;
 }
 
 // A curated list of common languages for translation
 const LANGUAGES = [
     { code: 'es', name: 'Spanish' },
-    { code: 'fr', name: 'French' },
     { code: 'de', name: 'German' },
+    { code: 'en', name: 'English' },
+    { code: 'fr', name: 'French' },
     { code: 'it', name: 'Italian' },
     { code: 'pt', name: 'Portuguese' },
     { code: 'ja', name: 'Japanese' },
     { code: 'zh', name: 'Chinese (Simplified)' },
     { code: 'ru', name: 'Russian' },
     { code: 'ar', name: 'Arabic' },
-    { code: 'en', name: 'English' },
     { code: 'ko', name: 'Korean' },
 ];
 
 
-export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ targetLanguage, setTargetLanguage, disabled }) => (
+export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ targetLanguage, setTargetLanguage, disabled, label }) => (
   <div className="w-full">
     <label htmlFor="language-select" className="block text-sm font-medium text-gray-300 mb-2">
-      2. Select target language
+      {label || 'Selecciona el idioma de destino'}
     </label>
     <select
       id="language-select"

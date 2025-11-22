@@ -1,10 +1,9 @@
-
 import React from 'react';
 
 interface GenerateButtonProps {
   onClick: () => void;
   disabled: boolean;
-  mode: 'image' | 'video' | 'recipe' | 'linkRecipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
+  mode: 'image' | 'recipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
 }
 
 export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disabled, mode }) => {
@@ -14,15 +13,9 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
   if (mode === 'image') {
     loadingText = 'Generating...';
     buttonText = 'Generate Image';
-  } else if (mode === 'video') {
-    loadingText = 'Rendering...';
-    buttonText = 'Generate Video';
   } else if (mode === 'recipe') {
     loadingText = 'Generating...';
     buttonText = 'Generate Recipe';
-  } else if (mode === 'linkRecipe') {
-    loadingText = 'Extrayendo...';
-    buttonText = 'Extraer Receta';
   } else if (mode === 'recipeCard') {
     loadingText = 'Generando Tarjeta...';
     buttonText = 'Generar Tarjeta de Receta';
@@ -51,7 +44,7 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
 
 interface DownloadButtonProps {
   assetUrl: string | null;
-  assetType: 'image' | 'video' | 'recipe' | 'translation' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null;
+  assetType: 'image' | 'recipe' | 'translation' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null;
 }
 
 export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetType }) => {
@@ -68,9 +61,6 @@ export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetT
       finalUrl = URL.createObjectURL(blob);
       downloadName = `nano-banana-${assetType}.txt`;
       buttonText = `Download ${assetType.charAt(0).toUpperCase() + assetType.slice(1)}`;
-  } else if (assetType === 'video') {
-      downloadName = 'nano-banana-video.mp4';
-      buttonText = 'Download Video';
   } else if (assetType === 'audio') {
       downloadName = 'nano-banana-speech.wav';
       buttonText = 'Download Audio';

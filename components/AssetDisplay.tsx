@@ -1,25 +1,27 @@
-
 import React, { useState } from 'react';
 
 interface AssetDisplayProps {
   srcs?: string[];
   alt?: string;
-  assetType?: 'image' | 'video' | 'recipe' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null;
+  assetType?: 'image' | 'recipe' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null;
   imageUrl?: string | null;
   translationResult?: string | null;
   onImageClick?: (index: number) => void;
+  blogPostImageUrl?: string | null;
+  imageFromBlogPrompt?: string;
+  setImageFromBlogPrompt?: (value: string) => void;
+  onGenerateImageFromBlog?: () => void;
+  isGeneratingImageFromBlog?: boolean;
+  generatedImageFromBlog?: string | null;
 }
 
-interface BlogPostData {
-    blogPostHtml: string;
+interface SeoBlogPostData {
+  metaElements: {
+    titleSEO: string;
     metaDescription: string;
-    focusKeyphrase: string;
-    pinterest: {
-        title1: string;
-        desc1: string;
-        title2: string;
-        desc2: string;
-    }
+    urlSlug: string;
+  };
+  blogPostHtml: string;
 }
 
 interface RecipeCardData {
@@ -68,7 +70,20 @@ const CopyButton = ({ textToCopy, label }: { textToCopy: string, label: string }
 };
 
 
-export const AssetDisplay: React.FC<AssetDisplayProps> = ({ srcs, alt, assetType, imageUrl, translationResult, onImageClick }) => {
+export const AssetDisplay: React.FC<AssetDisplayProps> = ({ 
+    srcs, 
+    alt, 
+    assetType, 
+    imageUrl, 
+    translationResult, 
+    onImageClick,
+    blogPostImageUrl,
+    imageFromBlogPrompt,
+    setImageFromBlogPrompt,
+    onGenerateImageFromBlog,
+    isGeneratingImageFromBlog,
+    generatedImageFromBlog 
+}) => {
   const hasMainAsset = !!(assetType && srcs && srcs.length > 0);
   const hasTranslation = !!translationResult;
 
@@ -153,66 +168,119 @@ export const AssetDisplay: React.FC<AssetDisplayProps> = ({ srcs, alt, assetType
 
     if (assetType === 'blogPost') {
         try {
-            const data: BlogPostData = JSON.parse(srcs![0]);
+            const data: SeoBlogPostData = JSON.parse(srcs![0]);
+
+            const getTextContent = (html: string): string => {
+                try {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    return tempDiv.textContent || tempDiv.innerText || '';
+                } catch (e) {
+                    // Fallback for non-browser environments or other errors
+                    return html.replace(/<[^>]+>/g, '');
+                }
+            };
+            
+            const characterCount = getTextContent(data.blogPostHtml).length;
+
             return (
-                 <div className="w-full bg-gray-900/75 p-4 rounded-lg text-left overflow-y-auto max-h-[70vh] space-y-6">
-                    {/* Blog Post Content */}
-                    <div className="prose prose-invert prose-pink max-w-none">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-pink-400">Contenido del Blog Post</h3>
-                            <CopyButton textToCopy={data.blogPostHtml} label="Copy HTML" />
-                        </div>
-                        <div 
-                          className="p-4 bg-gray-800 rounded-md border border-gray-700"
-                          dangerouslySetInnerHTML={{ __html: data.blogPostHtml }} 
-                        />
+              <div className="w-full bg-gray-900/75 p-4 rounded-lg text-left overflow-y-auto max-h-[70vh] space-y-6">
+                {/* PARTE 1: META-ELEMENTOS SEO */}
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-pink-400">PARTE 1: META-ELEMENTOS SEO</h3>
+                  <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
+                    <div className="flex justify-between items-center">
+                      <p className="text-sm font-semibold text-gray-300">Título SEO</p>
+                      <CopyButton textToCopy={data.metaElements.titleSEO} label="Copy" />
                     </div>
-                    {/* SEO & Meta Content */}
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-bold text-pink-400 border-t border-gray-700 pt-4">Recursos SEO</h3>
-                        <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
-                             <div className="flex justify-between items-center">
-                                <p className="text-sm font-semibold text-gray-300">Meta Descripción</p>
-                                <CopyButton textToCopy={data.metaDescription} label="Copy" />
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">{data.metaDescription}</p>
-                        </div>
-                        <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
-                            <div className="flex justify-between items-center">
-                                <p className="text-sm font-semibold text-gray-300">Frase Clave Principal</p>
-                                <CopyButton textToCopy={data.focusKeyphrase} label="Copy" />
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">{data.focusKeyphrase}</p>
-                        </div>
+                    <p className="mt-1 text-xs text-gray-400">{data.metaElements.titleSEO}</p>
+                  </div>
+                  <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
+                    <div className="flex justify-between items-center">
+                      <p className="text-sm font-semibold text-gray-300">Metadescripción</p>
+                      <CopyButton textToCopy={data.metaElements.metaDescription} label="Copy" />
                     </div>
-                     {/* Pinterest Content */}
-                     <div className="space-y-4">
-                        <h3 className="text-lg font-bold text-pink-400 border-t border-gray-700 pt-4">Contenido para Pinterest</h3>
-                        <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
-                             <div className="flex justify-between items-center">
-                                <p className="text-sm font-semibold text-gray-300">Título 1 (Emocional)</p>
-                                <CopyButton textToCopy={data.pinterest.title1} label="Copy" />
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">{data.pinterest.title1}</p>
-                            <p className="mt-2 text-sm font-semibold text-gray-300">Descripción 1</p>
-                            <p className="mt-1 text-xs text-gray-400">{data.pinterest.desc1}</p>
-                        </div>
-                        <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
-                            <div className="flex justify-between items-center">
-                                <p className="text-sm font-semibold text-gray-300">Título 2 (Práctico)</p>
-                                <CopyButton textToCopy={data.pinterest.title2} label="Copy" />
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">{data.pinterest.title2}</p>
-                            <p className="mt-2 text-sm font-semibold text-gray-300">Descripción 2</p>
-                            <p className="mt-1 text-xs text-gray-400">{data.pinterest.desc2}</p>
-                        </div>
+                    <p className="mt-1 text-xs text-gray-400">{data.metaElements.metaDescription}</p>
+                  </div>
+                  <div className="p-3 bg-gray-800 rounded-md border border-gray-700">
+                    <div className="flex justify-between items-center">
+                      <p className="text-sm font-semibold text-gray-300">URL Slug</p>
+                      <CopyButton textToCopy={data.metaElements.urlSlug} label="Copy" />
                     </div>
+                    <p className="mt-1 text-xs text-gray-400 font-mono">{data.metaElements.urlSlug}</p>
+                  </div>
                 </div>
+        
+                {/* PARTE 2: CONTENIDO DEL BLOG POST */}
+                <div className="prose prose-invert prose-pink max-w-none">
+                  <div className="flex justify-between items-center mb-4 border-t border-gray-700 pt-6">
+                    <h3 className="text-xl font-bold text-pink-400">PARTE 2: CONTENIDO DEL BLOG POST</h3>
+                    <CopyButton textToCopy={data.blogPostHtml} label="Copy HTML" />
+                  </div>
+                  <div
+                    className="p-4 bg-gray-800 rounded-md border border-gray-700"
+                    dangerouslySetInnerHTML={{ __html: data.blogPostHtml }}
+                  />
+                   <div className="text-right mt-4 pr-4">
+                      <p className="text-sm text-gray-400 font-mono">
+                          Total de Caracteres: {characterCount}
+                      </p>
+                  </div>
+                </div>
+                 {/* PARTE 3: GENERADOR DE IMÁGENES */}
+                {blogPostImageUrl && onGenerateImageFromBlog && setImageFromBlogPrompt && (
+                  <div className="mt-8 border-t border-gray-700 pt-6">
+                    <h3 className="text-xl font-bold text-pink-400 mb-4">Generar Imagen del Producto</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Original Image */}
+                      <div>
+                        <p className="text-sm font-semibold text-gray-300 mb-2">Imagen Original</p>
+                        <img src={blogPostImageUrl} alt="Imagen del producto extraída" className="w-full h-auto rounded-lg object-contain bg-gray-800 p-1" />
+                      </div>
+                      {/* Image Generation */}
+                      <div className="space-y-4">
+                        <p className="text-sm font-semibold text-gray-300">Generar una nueva imagen basada en la original</p>
+                        <textarea
+                          rows={3}
+                          value={imageFromBlogPrompt}
+                          onChange={(e) => setImageFromBlogPrompt(e.target.value)}
+                          disabled={isGeneratingImageFromBlog}
+                          placeholder="Ej: una foto del producto en una playa al atardecer"
+                          className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500"
+                        />
+                        <button
+                          onClick={onGenerateImageFromBlog}
+                          disabled={isGeneratingImageFromBlog || !imageFromBlogPrompt?.trim()}
+                          className="w-full px-4 py-2 font-semibold text-white bg-pink-600 rounded-lg hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isGeneratingImageFromBlog ? 'Generando...' : 'Generar Imagen'}
+                        </button>
+                        <div className="min-h-[10rem] flex items-center justify-center bg-gray-800 rounded-lg">
+                            {isGeneratingImageFromBlog ? (
+                                <div className="w-8 h-8 border-2 border-dashed rounded-full animate-spin border-pink-500"></div>
+                            ) : generatedImageFromBlog ? (
+                                <div className="p-2">
+                                    <img src={generatedImageFromBlog} alt="Imagen generada" className="w-full h-auto rounded-lg object-contain" />
+                                    <a
+                                    href={generatedImageFromBlog}
+                                    download="nano-banana-generated-image.png"
+                                    className="mt-2 inline-block text-sm text-pink-400 hover:underline"
+                                    >
+                                    Descargar Imagen
+                                    </a>
+                                </div>
+                            ) : <p className="text-xs text-gray-500">Tu imagen generada aparecerá aquí.</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             );
-        } catch(e) {
+          } catch (e) {
             console.error("Failed to parse blog post data:", e);
-            return <div className="text-red-400">Error displaying blog post data.</div>
-        }
+            return <div className="text-red-400">Error al mostrar los datos del post. Formato de datos no válido.</div>;
+          }
     }
 
     if (assetType === 'productShot' || (assetType === 'image' && srcs!.length > 1)) {
@@ -251,20 +319,6 @@ export const AssetDisplay: React.FC<AssetDisplayProps> = ({ srcs, alt, assetType
               src={src}
               alt={alt}
               className="w-full h-auto object-contain max-h-[60vh] rounded-lg shadow-lg"
-            />
-          </div>
-        );
-      case 'video':
-        return (
-          <div className="w-full bg-gray-900/50 p-2 rounded-xl">
-            <video
-              src={src}
-              controls
-              autoPlay
-              loop
-              muted
-              className="w-full h-auto object-contain max-h-[60vh] rounded-lg shadow-lg"
-              aria-label={alt || 'Generated video'}
             />
           </div>
         );
