@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface PromptInputProps {
@@ -8,6 +9,8 @@ interface PromptInputProps {
   setSimilarity: (similarity: number | null) => void;
   removeText: boolean;
   setRemoveText: (removeText: boolean) => void;
+  translateImageText: boolean;
+  setTranslateImageText: (translate: boolean) => void;
   isAnalyzing: boolean;
   contextualPersonSuggestion: string | null;
   addPerson: boolean;
@@ -34,6 +37,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   setSimilarity,
   removeText,
   setRemoveText,
+  translateImageText,
+  setTranslateImageText,
   isAnalyzing,
   contextualPersonSuggestion,
   addPerson,
@@ -112,6 +117,15 @@ export const PromptInput: React.FC<PromptInputProps> = ({
             })}
           </div>
         )}
+        {mode === 'recipeCard' && (
+            <button
+                onClick={() => setPrompt('')}
+                disabled={disabled || !prompt}
+                className="text-xs px-3 py-1 border border-red-800 rounded-md text-red-300 bg-red-900/30 hover:bg-red-900/50 disabled:opacity-50 transition-colors font-medium"
+            >
+                Borrar
+            </button>
+        )}
       </div>
       
       {mode === 'image' && (
@@ -145,6 +159,19 @@ export const PromptInput: React.FC<PromptInputProps> = ({
               aria-label="Toggle remove text from image"
             >
               Remove Text
+            </button>
+            <button
+              onClick={() => setTranslateImageText(!translateImageText)}
+              disabled={disabled}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                translateImageText
+                  ? 'bg-pink-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+              aria-pressed={translateImageText}
+              aria-label="Toggle translate text in image"
+            >
+              Translate Image Text
             </button>
             <button
               onClick={() => setAddPerson(!addPerson)}

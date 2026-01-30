@@ -1,9 +1,10 @@
+
 import React from 'react';
 
 interface GenerateButtonProps {
   onClick: () => void;
   disabled: boolean;
-  mode: 'image' | 'recipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
+  mode: 'image' | 'recipe' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard' | 'productAnalyst';
 }
 
 export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disabled, mode }) => {
@@ -28,6 +29,9 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
   } else if (mode === 'blogPost') {
     loadingText = 'Generando Post...';
     buttonText = 'Generar Blog Post';
+  } else if (mode === 'productAnalyst') {
+    loadingText = 'Analizando...';
+    buttonText = 'Analizar Producto';
   }
 
 
@@ -44,7 +48,7 @@ export const GenerateButton: React.FC<GenerateButtonProps> = ({ onClick, disable
 
 interface DownloadButtonProps {
   assetUrl: string | null;
-  assetType: 'image' | 'recipe' | 'translation' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | null;
+  assetType: 'image' | 'recipe' | 'translation' | 'audio' | 'productShot' | 'blogPost' | 'recipeCard' | 'productInfo' | null;
 }
 
 export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetType }) => {
@@ -56,7 +60,7 @@ export const DownloadButton: React.FC<DownloadButtonProps> = ({ assetUrl, assetT
   let buttonText: string;
   let finalUrl = assetUrl;
 
-  if (assetType === 'recipe' || assetType === 'translation') {
+  if (assetType === 'recipe' || assetType === 'translation' || assetType === 'productInfo') {
       const blob = new Blob([assetUrl], { type: 'text/plain;charset=utf-8' });
       finalUrl = URL.createObjectURL(blob);
       downloadName = `nano-banana-${assetType}.txt`;

@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Modality, Type } from "@google/genai";
-import type { ImageData } from '../types';
+import type { ImageData, ProductInfo, ProductSource } from '../types';
 
 // The client is initialized just-in-time before an API call.
 function getAiClient(apiKey: string): GoogleGenAI {
@@ -84,12 +85,11 @@ export const generateImage = async (prompt: string, imageData: ImageData | null,
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: { parts },
-    config: {
-        responseModalities: [Modality.IMAGE],
-    },
   });
 
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
+  const candidate = response.candidates?.[0];
+
+  for (const part of candidate?.content?.parts || []) {
     if (part.inlineData) {
       return part.inlineData.data;
     }
@@ -97,33 +97,87 @@ export const generateImage = async (prompt: string, imageData: ImageData | null,
 
   const textResponse = response.text;
   if (textResponse) {
-    throw new Error(`Image generation failed: ${textResponse}`);
+    throw new Error(`${textResponse}`);
   }
 
-  throw new Error("Image generation failed to produce an image.");
+  if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+      throw new Error(`La generación se detuvo. Razón: ${candidate.finishReason}. Por favor intenta con un prompt diferente o una imagen más clara.`);
+  }
+
+  throw new Error("La generación de imagen falló.");
+};
+
+export const analyzeProductInfo = async (imageData: ImageData, apiKey: string): Promise<ProductInfo> => {
+    const ai = getAiClient(apiKey);
+    
+    const model = 'gemini-3-flash-preview';
+    
+    const systemInstruction = `You are an elite Product Intelligence Expert. 
+Your goal is to identify and provide deep analysis for the product in the image.
+1. USE GOOGLE SEARCH to verify the specific brand and model.
+2. Provide a "description": professional, covering purpose and key benefits.
+3. Provide "applicationMethod": clear, bulleted steps on how to use it.
+4. Provide "nameArabic" and "nameFrench" as used in those specific markets.
+5. Provide "features": A list of 4-6 specific attributes (e.g., "Non-comedogenic", "SPF 50", "Nordic ingredients").
+
+The output MUST be a raw JSON object with keys: "description", "applicationMethod", "nameArabic", "nameFrench", "features" (array of {name, description}). 
+Focus on accuracy and official manufacturer information.`;
+
+    const parts = [
+        {
+            inlineData: {
+                data: imageData.imageBytes,
+                mimeType: imageData.mimeType,
+            },
+        },
+        { text: "Realiza un Análisis Inteligente de este Producto usando búsqueda web. Devuelve solo el JSON." }
+    ];
+
+    const response = await ai.models.generateContent({
+        model: model,
+        contents: { parts },
+        config: {
+            systemInstruction,
+            tools: [{ googleSearch: {} }],
+        }
+    });
+
+    try {
+        const textResponse = response.text || "";
+        const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+        const productInfo: ProductInfo = JSON.parse(jsonMatch ? jsonMatch[0] : textResponse);
+        
+        const sources: ProductSource[] = [];
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        if (groundingChunks) {
+            groundingChunks.forEach((chunk: any) => {
+                if (chunk.web && chunk.web.uri) {
+                    sources.push({ uri: chunk.web.uri, title: chunk.web.title || "Fuente oficial" });
+                }
+            });
+        }
+        productInfo.sources = sources.filter((v, i, a) => a.findIndex(t => t.uri === v.uri) === i);
+        
+        return productInfo;
+    } catch (e) {
+        console.error("Failed to parse product info JSON", e);
+        throw new Error("No se pudo extraer la información del producto. Verifica que el logo o nombre sea visible.");
+    }
 };
 
 export const generateProductShot = async (prompt: string, productImages: ImageData[], inspirationImageData: ImageData | null, apiKey: string): Promise<string[] | undefined> => {
     const ai = getAiClient(apiKey);
     
-    let finalPrompt = `You are an expert AI product photographer. The user has provided one or more images of a SINGLE product, likely from different angles. Your task is to use all these images to get a complete understanding of the product's shape, texture, and details. Then, create professional, high-quality product shots suitable for an e-commerce website.
-
-Analyze the product images to identify all distinct products (there should only be one main product, but it might come in multiple pieces). For EACH product, generate a separate, individual image. If there is only one product, generate one image.
-
-For each generated image, follow these rules:
-- Place the product on a clean, neutral, solid-color background (e.g., white, light gray, or a complementary pastel color).
-- Ensure the lighting is professional and even, highlighting the product's features without harsh shadows.
-- The product should be in sharp focus.
-- The composition should be centered and aesthetically pleasing.
-- Do NOT add any props, text, logos, or other objects unless explicitly asked for in the user's prompt.
-- If the user provides a specific request in the prompt, prioritize it while still following the general guidelines. For example, if they ask for a 'lifestyle' shot, you can add a relevant, subtle background.
-
-The final output should be a collection of professional product images.`;
+    // Improved prompt to prevent IMAGE_OTHER by being more descriptive and photographic
+    let finalPrompt = `High-end professional commercial photography of the product shown. 
+Set in a clean, minimalist studio environment with soft-box lighting. 
+The product should be centered, perfectly sharp, and looking its best for a premium brand catalog. 
+Solid neutral background. 8k resolution, cinematic lighting, ultra-detailed textures.`;
     
     const parts: any[] = [{ text: finalPrompt }];
 
     if (prompt) {
-        parts.push({ text: `User's specific request: ${prompt}`});
+        parts.push({ text: `Custom instructions: ${prompt}`});
     }
 
     productImages.forEach(img => {
@@ -136,7 +190,7 @@ The final output should be a collection of professional product images.`;
     });
 
     if (inspirationImageData) {
-        parts.push({ text: "Use this image for style inspiration:" });
+        parts.push({ text: "Reference visual style from this image:" });
         parts.push({
              inlineData: {
                 data: inspirationImageData.imageBytes,
@@ -148,14 +202,13 @@ The final output should be a collection of professional product images.`;
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts },
-        config: {
-            responseModalities: [Modality.IMAGE],
-        },
     });
     
     const base64Images: string[] = [];
-    if (response.candidates && response.candidates.length > 0) {
-        for (const part of response.candidates[0].content.parts) {
+    const candidate = response.candidates?.[0];
+
+    if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
             if (part.inlineData) {
                 base64Images.push(part.inlineData.data);
             }
@@ -166,17 +219,16 @@ The final output should be a collection of professional product images.`;
         return base64Images;
     }
     
-    const textResponse = response.text;
-    if (textResponse) {
-        throw new Error(`Product shot generation failed: ${textResponse}`);
+    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        throw new Error(`Error de generación: ${candidate.finishReason}. Intenta con una descripción más específica.`);
     }
 
-    throw new Error("Product shot generation failed to produce images.");
+    throw new Error("No se pudieron generar las fotos de producto.");
 };
 
 export const analyzeImage = async (imageData: ImageData, apiKey: string): Promise<string | null> => {
   const ai = getAiClient(apiKey);
-  const prompt = `Analyze the provided image and suggest a specific type of person to add to it that would make contextual sense. For example, if it's a beach, suggest 'a surfer walking on the sand'. If it's a library, suggest 'a student reading a book'. The suggestion should be a concise phrase.`;
+  const prompt = `Analiza la imagen y sugiere una persona para añadir contextualmente.`;
   const parts = [
     { text: prompt },
     {
@@ -188,39 +240,71 @@ export const analyzeImage = async (imageData: ImageData, apiKey: string): Promis
   ];
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: { parts },
   });
 
   return response.text.trim();
 };
 
+export const generateAltText = async (imageData: ImageData, apiKey: string): Promise<string | undefined> => {
+  const ai = getAiClient(apiKey);
+  const prompt = "Genera un texto alternativo descriptivo.";
+  const parts = [
+      { text: prompt },
+      {
+          inlineData: {
+              data: imageData.imageBytes,
+              mimeType: imageData.mimeType,
+          },
+      },
+  ];
+
+  const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: { parts },
+  });
+
+  return response.text.trim();
+};
+
+export const generateSocialMediaPost = async (imageData: ImageData, language: string, apiKey: string): Promise<string | undefined> => {
+    const ai = getAiClient(apiKey);
+    const prompt = `Escribe un post para redes sociales en ${language}.`;
+    
+    const parts = [
+        { text: prompt },
+        {
+            inlineData: {
+                data: imageData.imageBytes,
+                mimeType: imageData.mimeType,
+            },
+        },
+    ];
+  
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts },
+    });
+  
+    return response.text.trim();
+  };
 
 export const generateRecipe = async (prompt: string, apiKey: string): Promise<string | undefined> => {
   const ai = getAiClient(apiKey);
-  const fullPrompt = `Generate a recipe based on the following description: "${prompt}". 
-  Format the recipe clearly with a title, a brief introduction, a list of ingredients with quantities, and step-by-step instructions.`;
-  
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: fullPrompt,
+    model: 'gemini-3-flash-preview',
+    contents: `Genera una receta: ${prompt}`,
   });
-
   return response.text;
 };
 
 export const translateText = async (text: string, targetLanguage: string, stylize: boolean, apiKey: string): Promise<string | undefined> => {
     const ai = getAiClient(apiKey);
-    let prompt = `Translate the following text to ${targetLanguage}:\n\n---\n${text}\n---`;
-    if (stylize) {
-        prompt += `\n\nAfter translating, review and correct any grammatical errors. Also, adjust the style and tone to sound natural and fluent, as a native speaker would write it.`;
-    }
-
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
+        model: 'gemini-3-flash-preview',
+        contents: `Traduce a ${targetLanguage}:\n\n${text}`,
     });
-    
     return response.text;
 };
 
@@ -231,136 +315,82 @@ export const generateSpeech = async (prompt: string, voiceName: string, apiKey: 
     contents: [{ parts: [{ text: prompt }] }],
     config: {
       responseModalities: [Modality.AUDIO],
-      speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voiceName },
-          },
-      },
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } },
     },
   });
-  
-  const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (audioData) {
-    return audioData;
-  }
-  
-  throw new Error("Speech generation failed to produce audio.");
+  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 };
 
 export const generateRecipeCardFromLink = async (url: string, apiKey: string): Promise<any | undefined> => {
     const ai = getAiClient(apiKey);
+    const systemInstruction = `You are a professional Recipe Curator. 
+Extract detailed recipe information from the provided URL using Google Search.
+Return a valid JSON object with the following keys:
+"title": (string)
+"description": (string, brief summary)
+"imageUrl": (string, direct URL to main image if found)
+"prepTime": (string)
+"cookTime": (string)
+"servings": (string)
+"ingredients": (array of strings)
+"instructions": (array of strings)
+"notes": (array of strings)
+
+If a field is missing, provide an empty string or empty array. 
+The output MUST be a clean JSON object within triple backticks.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-pro',
-      contents: `Analyze the recipe from the URL: ${url}. Extract the following information and return it as a JSON object: title, description (a short, one-sentence summary), the absolute URL of the main recipe image (imageUrl), prep time (prepTime), cook time (cookTime), total number of servings (servings), a list of ingredients (ingredients, as an array of strings), a list of instructions (instructions, as an array of strings), and any additional notes or tips (notes, as an array of strings).`,
-      config: {
-        tools: [{ googleSearch: {} }],
+      model: 'gemini-3-pro-preview',
+      contents: `Extrae los detalles de la receta desde esta URL: ${url}`,
+      config: { 
+        systemInstruction,
+        tools: [{ googleSearch: {} }] 
       },
     });
     
     try {
-        let jsonString = response.text.trim();
-        // The model might return the JSON in a markdown code block, so we clean it up.
-        const startIndex = jsonString.indexOf('{');
-        const endIndex = jsonString.lastIndexOf('}');
-        if (startIndex !== -1 && endIndex !== -1) {
-          jsonString = jsonString.substring(startIndex, endIndex + 1);
-        } else {
-            // If we can't find JSON, throw an error.
-            throw new Error("No valid JSON object found in the response.");
+        const textResponse = response.text || "";
+        const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            console.error("No JSON block found in response:", textResponse);
+            throw new Error("No se encontró el formato JSON en la respuesta de la IA.");
         }
-        return JSON.parse(jsonString);
+        return JSON.parse(jsonMatch[0]);
     } catch (e) {
-        console.error("Failed to parse JSON response from Gemini", e, "Raw text:", response.text);
-        throw new Error("The API returned an invalid data format for the recipe card.");
+        console.error("Parse error in generateRecipeCardFromLink:", e);
+        throw new Error("Error al procesar los datos de la receta. La IA no pudo estructurar la información correctamente.");
     }
 };
 
-
-export const generateBlogPostFromLink = async (url: string, keyword: string, language: string, apiKey: string): Promise<{ blogPostContent: string, imageUrl: string | null } | undefined> => {
+export const generateBlogPostFromLink = async (url: string, keyword: string, language: string, apiKey: string): Promise<{ blogPostContent: string, imageUrl: string | null, imageDescription: string | null } | undefined> => {
   const ai = getAiClient(apiKey);
-
-  // --- Step 1: Fetch content from the URL using the googleSearch tool ---
   const fetchContentResponse = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: `Please extract the main article content from the provided URL. Focus on the body of the text, ignoring navigation, ads, and footers. The URL is: ${url}`,
-    config: {
-      tools: [{googleSearch: {}}],
-    }
+    model: 'gemini-3-flash-preview',
+    contents: `Extrae contenido de ${url}`,
+    config: { tools: [{googleSearch: {}}], }
   });
-  
   const sourceContent = fetchContentResponse.text;
-  if (!sourceContent.trim()) {
-    throw new Error("Could not extract content from the provided URL.");
-  }
-
-  // --- Step 1.5: Extract Image URL ---
+  
   const imageResponse = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `From the content of the URL ${url}, what is the absolute URL of the primary, main product or article image? Return only the URL and nothing else.`,
-      config: {
-          tools: [{googleSearch: {}}],
-      },
+      model: "gemini-3-flash-preview",
+      contents: `Identifica imagen destacada para ${url}. Solo JSON.`,
+      config: { tools: [{googleSearch: {}}], },
   });
   
   let imageUrl: string | null = null;
+  let imageDescription: string | null = null;
+
   try {
-    const urlText = imageResponse.text.trim();
-    if (urlText.startsWith('http')) {
-      new URL(urlText); 
-      imageUrl = urlText;
-    }
-  } catch (e) {
-    console.warn("Could not parse image URL from response:", imageResponse.text);
-  }
-
-  // --- Step 2: Generate the blog post using the fetched content ---
-  const systemInstruction = `
-Rol y Objetivo (Comportamiento del Sistema):
-Eres "BlogBot SEO Pro". Tu única función es recibir una [PALABRA_CLAVE] y un [CONTENIDO_FUENTE].
-Tu Proceso Obligatorio es:
-1. Analizar: Leer y comprender completamente el [CONTENIDO_FUENTE] proporcionado.
-2. Planificar: Usar la [PALABRA_CLAVE] como la nueva palabra clave principal para el post que vas a crear. Identificarás palabras clave secundarias basándote en el [CONTENIDO_FUENTE].
-3. Generar: Escribir un post de blog 100% original y nuevo, inspirado en la información del [CONTENIDO_FUENTE], pero re-enfocado y optimizado para la [PALABRA_CLAVE]. Nunca debes plagiar ni copiar texto directo.
-4. Aplicar Reglas: Durante la generación, debes seguir de forma estricta las siguientes "Instrucciones Base de SEO y Legibilidad".
-
-INSTRUCCIONES BASE DE SEO Y LEGIBILIDAD (Reglas Permanentes):
-Idioma: Debes escribir el post del blog exclusivamente en ${language}. Todo el contenido (título, metadescripción, cuerpo) debe estar en ${language}.
-
-Meta-Elementos (Obligatorios):
-• Título SEO: Menos de 60 caracteres. Debe incluir la [PALABRA_CLAVE].
-• Metadescripción: Menos de 160 caracteres. Persuasiva, incluye la [PALABRA_CLAVE] y un CTA.
-• URL Slug: Corta, en minúsculas, separada por guiones, basada en la [PALABRA_CLAVE].
-
-Estructura y Contenido (Obligatorios):
-• H1: Un solo H1 (título del post), debe incluir la [PALABRA_CLAVE].
-• Longitud: El contenido HTML del post (la parte de 'blogPostHtml') debe tener un mínimo de 1500 caracteres para ser exhaustivo y aportar valor.
-• Jerarquía: Usa H2 para secciones principales y H3 para sub-secciones.
-• Introducción: El primer párrafo debe ser corto e incluir la [PALABRA_CLAVE] de forma natural.
-• Legibilidad: Párrafos muy cortos (máx. 3-4 líneas).
-• Voz: Usa la voz activa.
-• Formato: Usa <strong> para ideas clave y listas (<ul><li>...</li></ul>) cuando sea apropiado.
-• Enlaces (Sugeridos): Incluye placeholders para [Enlace Interno: describir tema] y [Enlace Externo: describir fuente de autoridad].
-• Conclusión: Un resumen final y una Llamada a la Acción (CTA) clara.
-
-Formato de Salida:
-Debes entregar tu respuesta siempre en formato JSON, siguiendo el schema proporcionado.
-  `;
-
-  const userPrompt = `
-PALABRA CLAVE: "${keyword}"
-
-CONTENIDO FUENTE:
----
-${sourceContent}
----
-  `;
+    const jsonMatch = imageResponse.text.match(/\{[\s\S]*\}/);
+    const imageData = JSON.parse(jsonMatch ? jsonMatch[0] : imageResponse.text);
+    imageUrl = imageData.imageUrl;
+    imageDescription = imageData.visualDescription;
+  } catch (e) {}
 
   const generationResponse = await ai.models.generateContent({
-    model: 'gemini-2.5-pro',
-    contents: userPrompt,
+    model: 'gemini-3-pro-preview',
+    contents: `Escribe blog post SEO sobre ${keyword} en ${language} basado en: ${sourceContent}. Solo JSON.`,
     config: {
-      systemInstruction: systemInstruction,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -373,10 +403,7 @@ ${sourceContent}
               urlSlug: { type: Type.STRING },
             },
           },
-          blogPostHtml: {
-            type: Type.STRING,
-            description: "El contenido completo del post del blog en formato HTML, comenzando con una etiqueta <h1>."
-          },
+          blogPostHtml: { type: Type.STRING },
         },
       },
     }
@@ -385,5 +412,6 @@ ${sourceContent}
   return {
     blogPostContent: generationResponse.text,
     imageUrl,
+    imageDescription,
   };
 };

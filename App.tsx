@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { generateImage, analyzeImage, generateRecipe, translateText, generateSpeech, createWavBlobFromBase64, generateProductShot, generateBlogPostFromLink, generateRecipeCardFromLink, GeminiUserInputError } from './services/geminiService';
+import React, { useState, useEffect } from 'react';
+import { generateImage, analyzeImage, generateRecipe, translateText, generateSpeech, generateProductShot, generateBlogPostFromLink, generateRecipeCardFromLink, generateAltText, generateSocialMediaPost, analyzeProductInfo, GeminiUserInputError } from './services/geminiService';
 import type { ImageData, HistoryItem, AppMode, ModeState } from './types';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
@@ -11,7 +11,6 @@ import { ErrorDisplay } from './components/ErrorDisplay';
 import { GenerateButton, DownloadButton } from './components/GenerateButton';
 import { LanguageSelector, VoiceSelector } from './components/VideoPlayer';
 import { Modal } from './components/Modal';
-import { ApiKeyInput } from './components/ApiKeyInput';
 import { HistoryPanel } from './components/HistoryPanel';
 
 const PERSON_ACTIONS = [
@@ -27,6 +26,7 @@ const initialModeState: ModeState = {
   prompt: '',
   similarity: null,
   removeText: false,
+  translateImageText: false,
   singleImageData: null,
   productImages: [],
   inspirationImageData: null,
@@ -49,13 +49,14 @@ const initialModeState: ModeState = {
   imageFromBlogPrompt: '',
   generatedImageFromBlog: null,
   isGeneratingImageFromBlog: false,
+  altText: '',
+  socialMediaText: '',
+  socialMediaLanguage: 'German',
+  productInfoResult: null,
 };
 
 
 const App: React.FC = () => {
-  const [isAiStudio, setIsAiStudio] = useState<boolean>(false);
-  const [hasSelectedKey, setHasSelectedKey] = useState<boolean | null>(null);
-  const [apiKey, setApiKey] = useState<string>('');
   const [mode, setMode] = useState<AppMode>('image');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -67,6 +68,7 @@ const App: React.FC = () => {
     productShot: { ...initialModeState, targetLanguage: 'German', selectedVoice: 'Kore' },
     blogPost: { ...initialModeState, blogPostLanguage: 'Spanish', targetLanguage: 'German', selectedVoice: 'Kore' },
     recipeCard: { ...initialModeState, targetLanguage: 'German', selectedVoice: 'Kore' },
+    productAnalyst: { ...initialModeState, targetLanguage: 'German', selectedVoice: 'Kore' },
   });
 
   const currentModeState = modeStates[mode];
@@ -84,29 +86,6 @@ const App: React.FC = () => {
   // State for History
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
-
-  useEffect(() => {
-    // @ts-ignore
-    const runningInAiStudio = window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function';
-    setIsAiStudio(runningInAiStudio);
-
-    const checkApiKey = async () => {
-      if (runningInAiStudio) {
-        // @ts-ignore
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setHasSelectedKey(hasKey);
-      } else {
-        const storedApiKey = process.env.GEMINI_API_KEY;
-        if (storedApiKey) {
-          setApiKey(storedApiKey);
-          setHasSelectedKey(true);
-        } else {
-          setHasSelectedKey(false);
-        }
-      }
-    };
-    checkApiKey();
-  }, []);
   
   // Load history from localStorage on mount
   useEffect(() => {
@@ -129,27 +108,6 @@ const App: React.FC = () => {
     }
   }, [history]);
 
-  
-  const handleSaveApiKey = (key: string) => {
-    localStorage.setItem('gemini-api-key', key);
-    setApiKey(key);
-    setHasSelectedKey(true);
-  };
-
-  const handleConnectClick = async () => {
-    // @ts-ignore
-    if (isAiStudio && window.aistudio.openSelectKey) {
-      try {
-        // @ts-ignore
-        await window.aistudio.openSelectKey();
-        setHasSelectedKey(true);
-      } catch (e) {
-        console.error("Error opening API key selection:", e);
-        updateCurrentModeState({ error: "Could not open the API key selection dialog." });
-      }
-    }
-  };
-
   useEffect(() => {
     if (mode !== 'image') {
       updateCurrentModeState({ contextualPersonSuggestion: null });
@@ -160,7 +118,7 @@ const App: React.FC = () => {
       if (currentModeState.singleImageData) {
         setIsAnalyzing(true);
         updateCurrentModeState({ contextualPersonSuggestion: null });
-        const suggestion = await callApiService(analyzeImage, currentModeState.singleImageData, apiKey);
+        const suggestion = await callApiService(analyzeImage, currentModeState.singleImageData);
         if (suggestion) {
             updateCurrentModeState({ contextualPersonSuggestion: suggestion });
         }
@@ -171,7 +129,7 @@ const App: React.FC = () => {
       }
     };
     analyze();
-  }, [currentModeState.singleImageData, mode, apiKey]);
+  }, [currentModeState.singleImageData, mode]);
 
   const addToHistory = (item: Omit<HistoryItem, 'id' | 'timestamp'>) => {
     const newItem: HistoryItem = {
@@ -197,10 +155,11 @@ const App: React.FC = () => {
   ): Promise<T | null> => {
     updateCurrentModeState({ error: null });
     try {
-      const currentApiKey = isAiStudio ? process.env.API_KEY! : apiKey;
+      // Use process.env.API_KEY directly
+      const currentApiKey = process.env.API_KEY;
+
       if (!currentApiKey) {
-        updateCurrentModeState({ error: "API key is not set." });
-        setHasSelectedKey(false);
+        updateCurrentModeState({ error: "API key is not configured in environment." });
         return null;
       }
       return await serviceCall(...args, currentApiKey);
@@ -219,18 +178,13 @@ const App: React.FC = () => {
           errText.includes("resource_exhausted") ||
           errText.includes("invalid api key")
         ) {
-          setHasSelectedKey(false); 
-          const changeKeyAction = isAiStudio 
-            ? <button onClick={handleConnectClick} className="font-bold underline hover:text-red-200 ml-2">Selecciona una clave diferente.</button>
-            : <button onClick={() => setHasSelectedKey(false)} className="font-bold underline hover:text-red-200 ml-2">Ingresa una clave diferente.</button>;
-
           errorNode = (
             <>
               La clave de API ha excedido su cuota, no es válida o no tiene permisos. Para el video de Gemini, se requiere una clave de un proyecto con{' '}
               <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-red-200">
                 facturación habilitada
               </a>{' '}
-              requerida. Por favor, verifica la configuración de tu proyecto. {changeKeyAction}
+              requerida. Por favor, verifica la configuración de tu proyecto.
             </>
           );
         } else {
@@ -246,11 +200,11 @@ const App: React.FC = () => {
 
   const handleImageAndTextGeneration = async () => {
     const { 
-      prompt, singleImageData, removeText, addPerson, similarity, contextualPersonSuggestion,
+      prompt, singleImageData, removeText, translateImageText, addPerson, similarity, contextualPersonSuggestion,
       textToTranslate, targetLanguage, stylizeAndCorrect 
     } = currentModeState;
 
-    const imageGenPossible = prompt.trim().length > 0 || (!!singleImageData && (removeText || addPerson || similarity !== null));
+    const imageGenPossible = prompt.trim().length > 0 || (!!singleImageData && (removeText || translateImageText || addPerson || similarity !== null));
     const translationPossible = textToTranslate.trim().length > 0;
 
     if (!imageGenPossible && !translationPossible) {
@@ -259,7 +213,7 @@ const App: React.FC = () => {
     }
 
     setIsLoading(true);
-    updateCurrentModeState({ assetUrls: [], translationResult: null, assetType: null });
+    updateCurrentModeState({ assetUrls: [], translationResult: null, assetType: null, socialMediaText: '' });
 
     // --- Image Generation Logic ---
     let imagePromise: Promise<string | undefined | null> = Promise.resolve(null);
@@ -273,6 +227,10 @@ const App: React.FC = () => {
       if (removeText) {
         const removeTextPrompt = "remove any text from the image";
         finalImagePrompt = finalImagePrompt ? `${finalImagePrompt}, ${removeTextPrompt}` : removeTextPrompt;
+      }
+      if (translateImageText) {
+        const translatePrompt = `Make everything written in the image a literal translation into ${targetLanguage}`;
+        finalImagePrompt = finalImagePrompt ? `${finalImagePrompt}, ${translatePrompt}` : translatePrompt;
       }
       if (singleImageData && similarity !== null) {
         let similarityPrompt = '';
@@ -309,7 +267,7 @@ const App: React.FC = () => {
 
     updateCurrentModeState({ 
         assetUrls: newAssetUrls, 
-        assetType: newAssetType,
+        assetType: newAssetType, 
         translationResult: translatedText || null 
     });
 
@@ -325,6 +283,81 @@ const App: React.FC = () => {
         });
     }
 
+    setIsLoading(false);
+  };
+
+  const handleProductAnalysis = async () => {
+      const { singleImageData } = currentModeState;
+      if (!singleImageData) {
+          updateCurrentModeState({ error: "Please upload a product image first." });
+          return;
+      }
+      setIsLoading(true);
+      updateCurrentModeState({ assetUrls: [], assetType: null, productInfoResult: null });
+
+      const result = await callApiService(analyzeProductInfo, singleImageData);
+      if (result) {
+          const dataUrl = `data:${singleImageData.mimeType};base64,${singleImageData.imageBytes}`;
+          updateCurrentModeState({
+              assetUrls: [dataUrl],
+              assetType: 'productInfo',
+              productInfoResult: result
+          });
+          addToHistory({
+              mode: 'productAnalyst',
+              prompt: `Analyze Product: ${result.nameFrench || 'Image'}`,
+              assetUrls: [dataUrl],
+              assetType: 'productInfo',
+              productInfo: result
+          });
+      }
+      setIsLoading(false);
+  };
+
+  const handleGenerateAltText = async () => {
+    const { singleImageData } = currentModeState;
+    if (!singleImageData) {
+      updateCurrentModeState({ error: "Please upload an image first to generate Alt Text." });
+      return;
+    }
+    setIsLoading(true);
+    updateCurrentModeState({ error: null });
+    
+    const altText = await callApiService(generateAltText, singleImageData);
+    if (altText) {
+      updateCurrentModeState({ altText });
+    }
+    setIsLoading(false);
+  };
+
+  const handleGenerateSocialMediaPost = async () => {
+    const { singleImageData, socialMediaLanguage } = currentModeState;
+    if (!singleImageData) {
+      updateCurrentModeState({ error: "Please upload an image first to generate a social media post." });
+      return;
+    }
+    setIsLoading(true);
+    updateCurrentModeState({ error: null, assetUrls: [], assetType: null });
+    
+    const postText = await callApiService(generateSocialMediaPost, singleImageData, socialMediaLanguage || 'German');
+    if (postText) {
+      const dataUrl = `data:${singleImageData.mimeType};base64,${singleImageData.imageBytes}`;
+      
+      updateCurrentModeState({ 
+          socialMediaText: postText,
+          assetUrls: [dataUrl],
+          assetType: 'image'
+      });
+      
+      addToHistory({ 
+        mode: 'image', 
+        prompt: `Social Media Post (${socialMediaLanguage || 'German'})`,
+        assetUrls: [dataUrl], 
+        assetType: 'image', 
+        socialMediaText: postText,
+        translationResult: null
+      });
+    }
     setIsLoading(false);
   };
 
@@ -394,12 +427,13 @@ const App: React.FC = () => {
       updateCurrentModeState({
         assetUrls: [result.blogPostContent],
         assetType: 'blogPost',
-        blogPostImageUrl: result.imageUrl
+        blogPostImageUrl: result.imageUrl,
+        imageFromBlogPrompt: result.imageDescription || `Una imagen representativa para un artículo sobre ${primaryKeyword}`
       });
       addToHistory({ 
         mode: 'blogPost', 
-        prompt: `${url} | ${primaryKeyword}`, 
-        assetUrls: [result.blogPostContent], 
+        prompt: `${url} | ${primaryKeyword}`,
+        assetUrls: [result.blogPostContent],
         assetType: 'blogPost',
         blogPostImageUrl: result.imageUrl
       });
@@ -407,523 +441,517 @@ const App: React.FC = () => {
     setIsLoading(false);
   };
 
-  const urlToImageData = async (url: string): Promise<ImageData | null> => {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        updateCurrentModeState({ error: `Failed to fetch image from URL. Status: ${response.status}. This might be a CORS issue.` });
-        return null;
-      }
-      const blob = await response.blob();
-      const reader = new FileReader();
-      return new Promise((resolve, reject) => {
-        reader.onloadend = () => {
-          const base64String = (reader.result as string)?.split(',')[1];
-          if (base64String) {
-            resolve({ imageBytes: base64String, mimeType: blob.type });
-          } else {
-            reject(new Error('Failed to read blob as base64.'));
-          }
-        };
-        reader.onerror = (err) => {
-          updateCurrentModeState({ error: "Error reading image data." });
-          reject(err);
-        }
-        reader.readAsDataURL(blob);
-      });
-    } catch (error) {
-      console.error('Error converting URL to ImageData:', error);
-      updateCurrentModeState({ error: "Could not load the product image. This may be due to network or security (CORS) restrictions." });
-      return null;
-    }
-  };
-
   const handleGenerateImageFromBlogPost = async () => {
     const { blogPostImageUrl, imageFromBlogPrompt } = currentModeState;
-    if (!blogPostImageUrl || !imageFromBlogPrompt.trim()) {
-      updateCurrentModeState({ error: "Please provide a prompt and ensure an image was extracted." });
-      return;
-    }
+
+    if (!imageFromBlogPrompt || !imageFromBlogPrompt.trim()) return;
+
     updateCurrentModeState({ isGeneratingImageFromBlog: true, generatedImageFromBlog: null, error: null });
 
-    const sourceImageData = await urlToImageData(blogPostImageUrl);
-    
-    if (!sourceImageData) {
-      // urlToImageData will set a specific error
+    try {
+      let imageData: ImageData | null = null;
+      let usedPrompt = imageFromBlogPrompt;
+      
+      // Attempt to fetch image if URL exists
+      if (blogPostImageUrl) {
+        try {
+            const response = await fetch(blogPostImageUrl);
+            if(response.ok) {
+                const blob = await response.blob();
+                const base64 = await blobToDataUrl(blob);
+                imageData = {
+                    imageBytes: base64.split(',')[1],
+                    mimeType: blob.type
+                };
+            }
+        } catch (e) {
+            console.warn("Failed to fetch source image (CORS likely). Falling back to Text-to-Image.", e);
+            imageData = null;
+            if (!usedPrompt.toLowerCase().includes("generate") && !usedPrompt.toLowerCase().includes("create")) {
+                usedPrompt = "Create a high quality image of " + usedPrompt;
+            }
+        }
+      }
+
+      const generatedBase64 = await callApiService(generateImage, usedPrompt, imageData);
+
+      if (generatedBase64) {
+        const dataUrl = `data:image/png;base64,${generatedBase64}`;
+        updateCurrentModeState({ generatedImageFromBlog: dataUrl });
+      }
+
+    } catch (e) {
+        console.error(e);
+        updateCurrentModeState({ error: "Failed to generate image. Try modifying the prompt." });
+    } finally {
       updateCurrentModeState({ isGeneratingImageFromBlog: false });
-      return;
     }
-    
-    const newImageBase64 = await callApiService(generateImage, imageFromBlogPrompt, sourceImageData);
-
-    if (newImageBase64) {
-      updateCurrentModeState({ generatedImageFromBlog: `data:image/png;base64,${newImageBase64}` });
-    }
-    updateCurrentModeState({ isGeneratingImageFromBlog: false });
   };
-
 
   const handleSpeechGeneration = async () => {
     const { prompt, selectedVoice } = currentModeState;
-    if (!prompt.trim()) {
-      updateCurrentModeState({ error: 'Please enter text to generate speech.' });
-      return;
-    }
+    if (!prompt.trim()) return;
     setIsLoading(true);
     updateCurrentModeState({ assetUrls: [], assetType: null });
-    const base64Audio = await callApiService(generateSpeech, prompt, selectedVoice);
-    if(base64Audio) {
-      const audioBlob = createWavBlobFromBase64(base64Audio);
-      const dataUrl = await blobToDataUrl(audioBlob);
-      updateCurrentModeState({ assetUrls: [dataUrl], assetType: 'audio' });
-      addToHistory({ mode: 'speech', prompt, assetUrls: [dataUrl], assetType: 'audio' });
+    const audioBase64 = await callApiService(generateSpeech, prompt, selectedVoice);
+    if (audioBase64) {
+        const dataUrl = `data:audio/wav;base64,${audioBase64}`;
+        updateCurrentModeState({ assetUrls: [dataUrl], assetType: 'audio' });
+        addToHistory({ mode: 'speech', prompt, assetUrls: [dataUrl], assetType: 'audio' });
     }
     setIsLoading(false);
   };
-  
+
   const handleProductShotGeneration = async () => {
-    const { prompt, productImages, inspirationImageData } = currentModeState;
-    if (productImages.length === 0) {
-      updateCurrentModeState({ error: 'Por favor, sube una o más imágenes de producto.' });
-      return;
-    }
-
-    setIsLoading(true);
-    updateCurrentModeState({ assetUrls: [], assetType: null });
-
-    const result = await callApiService(generateProductShot, prompt, productImages, inspirationImageData);
-    
-    if (result && result.length > 0) {
-      const dataUrls = result.map(base64 => `data:image/png;base64,${base64}`);
-      updateCurrentModeState({ assetUrls: dataUrls, assetType: 'productShot' });
-      addToHistory({ mode: 'productShot', prompt, assetUrls: dataUrls, assetType: 'productShot' });
-    }
-    setIsLoading(false);
+      const { prompt, productImages, inspirationImageData } = currentModeState;
+      if (productImages.length === 0) {
+          updateCurrentModeState({ error: "Please upload at least one product image." });
+          return;
+      }
+      setIsLoading(true);
+      updateCurrentModeState({ assetUrls: [], assetType: null });
+      const images = await callApiService(generateProductShot, prompt, productImages, inspirationImageData);
+      if (images) {
+          const urls = images.map(b64 => `data:image/png;base64,${b64}`);
+          updateCurrentModeState({ assetUrls: urls, assetType: 'productShot' });
+          addToHistory({ mode: 'productShot', prompt: prompt || 'Product Shot', assetUrls: urls, assetType: 'productShot' });
+      }
+      setIsLoading(false);
   };
 
-  const handleGenerate = () => {
-    if (mode === 'image') {
-      handleImageAndTextGeneration();
-    } else if (mode === 'recipe') {
-      handleRecipeGeneration();
-    } else if (mode === 'speech') {
-      handleSpeechGeneration();
-    } else if (mode === 'productShot') {
-      handleProductShotGeneration();
-    } else if (mode === 'blogPost') {
-      handleBlogPostGeneration();
-    } else if (mode === 'recipeCard') {
-      handleRecipeCardGeneration();
-    }
+  const handleTransferText = (text: string) => {
+    setMode('image');
+    setModeStates(prev => ({
+        ...prev,
+        image: {
+            ...prev.image,
+            textToTranslate: text,
+            targetLanguage: prev.image.targetLanguage || 'Spanish', 
+        }
+    }));
   };
   
-  const handleModeChange = (newMode: AppMode) => {
-    if (newMode !== mode) {
-      setMode(newMode);
+  const handleRemoveMainAsset = () => {
+       updateCurrentModeState({ assetUrls: [], assetType: null, productInfoResult: null });
+  };
+  
+  const handleRemoveTranslation = () => {
+       updateCurrentModeState({ translationResult: null });
+  };
+  
+  const handleRemoveSocialMedia = () => {
+       updateCurrentModeState({ socialMediaText: null });
+  };
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalImageIndex, setModalImageIndex] = useState(0);
+
+  const openModal = (index: number) => {
+    setModalImageIndex(index);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+  };
+
+  const nextModalImage = () => {
+    if (currentModeState.assetUrls.length > 0) {
+      setModalImageIndex((prev) => (prev + 1) % currentModeState.assetUrls.length);
     }
   };
 
-  const handlePasteFromClipboard = async () => {
-    try {
-        const text = await navigator.clipboard.readText();
-        updateCurrentModeState({ textToTranslate: text });
-    } catch (err) {
-        console.error('Failed to paste text: ', err);
+  const prevModalImage = () => {
+    if (currentModeState.assetUrls.length > 0) {
+      setModalImageIndex((prev) => (prev - 1 + currentModeState.assetUrls.length) % currentModeState.assetUrls.length);
     }
   };
 
-  const handleClearTranslationInput = () => {
-      updateCurrentModeState({ textToTranslate: '' });
+  const handleHistoryClick = () => {
+    setIsHistoryOpen(true);
   };
 
-  const handleImageClick = (index: number) => {
-    updateCurrentModeState({ selectedImageIndex: index });
+  const handleHistoryClose = () => {
+    setIsHistoryOpen(false);
   };
 
-  const handleCloseModal = () => {
-    updateCurrentModeState({ selectedImageIndex: null });
-  };
-
-  const handleModalPrev = () => {
-    const { selectedImageIndex, assetUrls } = currentModeState;
-    if (selectedImageIndex !== null) {
-      updateCurrentModeState({
-        selectedImageIndex: (selectedImageIndex - 1 + assetUrls.length) % assetUrls.length
-      });
-    }
-  };
-
-  const handleModalNext = () => {
-    const { selectedImageIndex, assetUrls } = currentModeState;
-    if (selectedImageIndex !== null) {
-      updateCurrentModeState({
-        selectedImageIndex: (selectedImageIndex + 1) % assetUrls.length
-      });
-    }
-  };
-
-  const handleSelectHistoryItem = (item: HistoryItem) => {
-    const { mode, prompt, assetUrls, assetType, translationResult, recipeImageUrl, blogPostImageUrl, sources } = item;
-    
+  const handleHistorySelect = (item: HistoryItem) => {
+    setMode(item.mode);
     setModeStates(prev => ({
       ...prev,
-      [mode]: {
-        ...initialModeState, // Reset the mode to a clean state
-        ...prev[mode],     // Re-apply any non-resettable state if needed in future
-        prompt: prompt,
-        assetUrls: assetUrls,
-        assetType: assetType,
-        translationResult: translationResult || null,
-        recipeImageUrl: recipeImageUrl || null,
-        blogPostImageUrl: blogPostImageUrl || null,
-        sources: sources || null,
-        error: null,
+      [item.mode]: {
+        ...prev[item.mode],
+        prompt: item.prompt,
+        assetUrls: item.assetUrls,
+        assetType: item.assetType,
+        translationResult: item.translationResult || null,
+        blogPostImageUrl: item.blogPostImageUrl || null,
+        recipeImageUrl: item.recipeImageUrl || null,
+        socialMediaText: item.socialMediaText || null,
+        productInfoResult: item.productInfo || null,
       }
     }));
-
-    setMode(mode);
-    setIsLoading(false);
     setIsHistoryOpen(false);
   };
 
   const handleClearHistory = () => {
-    if (window.confirm('Are you sure you want to clear your entire generation history? This action cannot be undone.')) {
-      setHistory([]);
+    setHistory([]);
+    try {
+      localStorage.removeItem('nano-banana-history');
+    } catch (error) {
+      console.error("Failed to clear history from localStorage", error);
     }
   };
-
-  const { prompt, singleImageData, removeText, addPerson, similarity, productImages, textToTranslate, primaryKeyword } = currentModeState;
-  const baseCanGenerate = prompt.trim().length > 0;
-  
-  const imageGenCanGenerate = prompt.trim().length > 0 || (!!singleImageData && (removeText || addPerson || similarity !== null));
-  const productShotCanGenerate = mode === 'productShot' && productImages.length > 0;
-  const blogPostCanGenerate = mode === 'blogPost' && prompt.trim().length > 0 && primaryKeyword.trim().length > 0;
-  const recipeCardCanGenerate = mode === 'recipeCard' && prompt.trim().length > 0;
-  const canTranslate = textToTranslate.trim().length > 0;
-
-  const canGenerate = (
-      (mode === 'image' && (imageGenCanGenerate || canTranslate)) ||
-      (mode === 'recipe' && baseCanGenerate) ||
-      (mode === 'productShot' && productShotCanGenerate) ||
-      (mode === 'blogPost' && blogPostCanGenerate) ||
-      (mode === 'recipeCard' && recipeCardCanGenerate) ||
-      (mode === 'speech' && baseCanGenerate)
-  );
-
-
-  const getPlaceholderText = () => {
-    switch (mode) {
-      case 'image': return 'Your generated image will appear here.';
-      case 'recipe': return 'Your generated recipe will appear here.';
-      case 'recipeCard': return 'Your generated recipe card will appear here.';
-      case 'speech': return 'Your generated audio will appear here.';
-      case 'productShot': return 'Tus fotos de producto profesionales aparecerán aquí.';
-      case 'blogPost': return 'Your generated blog post will appear here.';
-      default: return 'Your generated asset will appear here.';
-    }
-  };
-
-  const ModeButton = ({ targetMode, label }: { targetMode: AppMode; label: string }) => {
-    return (
-        <button 
-            onClick={() => handleModeChange(targetMode)} 
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 ${
-                mode === targetMode 
-                ? 'bg-pink-600 text-white shadow-lg' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-        >
-            {label}
-        </button>
-    );
-  };
-  
-  const mainContent = () => {
-    if (hasSelectedKey === false) {
-      if (isAiStudio) {
-        return (
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-200 mb-4">Conecta tu clave de API para empezar</h2>
-            <p className="text-gray-400 mb-6 max-w-md mx-auto">
-              Para usar las funciones de generación de video de Gemini, necesitarás una clave de API de un proyecto con{' '}
-              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-pink-400">
-                facturación habilitada
-              </a>.
-            </p>
-            <button
-              onClick={handleConnectClick}
-              className="px-8 py-3 font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-full hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-pink-500 transition-all duration-300 shadow-lg"
-            >
-              Conectar Clave de API
-            </button>
-          </div>
-        );
-      }
-      return <ApiKeyInput onSave={handleSaveApiKey} />;
-    }
-    
-    if (hasSelectedKey === null) {
-      return <LoadingIndicator mode="image" />;
-    }
-    
-    const { 
-      prompt, similarity, removeText, addPerson, contextualPersonSuggestion, 
-      primaryKeyword, blogPostLanguage, 
-      selectedVoice, 
-      productImages, inspirationImageData, 
-      textToTranslate, targetLanguage, stylizeAndCorrect,
-      error, assetUrls, translationResult, assetType, recipeImageUrl,
-      blogPostImageUrl, imageFromBlogPrompt, isGeneratingImageFromBlog, generatedImageFromBlog,
-      selectedImageIndex
-    } = currentModeState;
-
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
-          {/* Left Column: Inputs */}
-          <div className="space-y-6">
-            <div className="bg-gray-800/50 p-6 rounded-2xl shadow-lg">
-              <div className="flex flex-wrap gap-2 mb-6">
-                <ModeButton targetMode="image" label="Image & Translation" />
-                <ModeButton targetMode="productShot" label="Foto de Producto" />
-                <ModeButton targetMode="speech" label="Text-to-Speech" />
-                <ModeButton targetMode="blogPost" label="Blog Post desde URL" />
-                <ModeButton targetMode="recipeCard" label="Tarjeta de Receta" />
-              </div>
-
-              { (mode === 'image' || mode === 'recipe' || mode === 'speech' || mode === 'productShot' || mode === 'blogPost' || mode === 'recipeCard') && (
-                <PromptInput
-                  prompt={prompt}
-                  setPrompt={(value) => updateCurrentModeState({ prompt: typeof value === 'function' ? value(prompt) : value })}
-                  disabled={isLoading}
-                  similarity={similarity}
-                  setSimilarity={(value) => updateCurrentModeState({ similarity: value })}
-                  removeText={removeText}
-                  setRemoveText={(value) => updateCurrentModeState({ removeText: value })}
-                  isAnalyzing={isAnalyzing}
-                  contextualPersonSuggestion={contextualPersonSuggestion}
-                  addPerson={addPerson}
-                  setAddPerson={(value) => updateCurrentModeState({ addPerson: value })}
-                  mode={mode}
-                />
-              )}
-              {mode === 'blogPost' && (
-                <>
-                  <div className="w-full mt-4">
-                    <label htmlFor="primaryKeyword" className="block text-sm font-medium text-gray-300 mb-2">
-                      2. Ingresa tu PALABRA CLAVE
-                    </label>
-                    <input
-                      id="primaryKeyword"
-                      type="text"
-                      value={primaryKeyword}
-                      onChange={(e) => updateCurrentModeState({ primaryKeyword: e.target.value })}
-                      disabled={isLoading}
-                      placeholder="ej., mejores alternativas a ChatGPT para marketing"
-                      className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 disabled:opacity-50"
-                    />
-                  </div>
-                   <div className="w-full mt-4">
-                    <LanguageSelector 
-                        targetLanguage={blogPostLanguage}
-                        setTargetLanguage={(value) => updateCurrentModeState({ blogPostLanguage: value })}
-                        disabled={isLoading}
-                        label="3. Selecciona el idioma del post"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-            {mode === 'speech' && (
-              <div className="bg-gray-800/50 p-6 rounded-2xl shadow-lg">
-                <VoiceSelector selectedVoice={selectedVoice} setSelectedVoice={(value) => updateCurrentModeState({ selectedVoice: value })} disabled={isLoading} />
-              </div>
-            )}
-            
-            { (mode === 'image') && (
-              <div className="bg-gray-800/50 p-6 rounded-2xl shadow-lg">
-                <ImageUploader label="2. Add a base image (Optional)" disabled={isLoading} setImageData={(value) => updateCurrentModeState({ singleImageData: value })} />
-              </div>
-            )}
-
-            { mode === 'productShot' && (
-              <>
-                <div className="bg-gray-800/50 p-6 rounded-2xl shadow-lg">
-                  <ImageUploader 
-                    label="2. Sube tus imágenes de producto" 
-                    disabled={isLoading} 
-                    multiple 
-                    images={productImages}
-                    onImagesChange={(value) => updateCurrentModeState({ productImages: value })}
-                  />
-                </div>
-                 <div className="bg-gray-800/50 p-6 rounded-2xl shadow-lg">
-                  <ImageUploader 
-                    label="3. Sube una imagen de inspiración (opcional)" 
-                    disabled={isLoading}
-                    setImageData={(value) => updateCurrentModeState({ inspirationImageData: value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {mode === 'image' && (
-              <div className="bg-gray-800/50 p-6 rounded-2xl shadow-lg">
-                <h2 className="text-sm font-medium text-gray-300 mb-2">Translate Text</h2>
-                 <div className="flex items-center justify-end gap-2 mb-2">
-                    <button
-                        onClick={handlePasteFromClipboard}
-                        disabled={isLoading}
-                        className="text-xs px-2 py-1 border border-gray-600 rounded-md text-gray-300 bg-gray-700/50 hover:bg-gray-700 disabled:opacity-50"
-                    >
-                        Paste
-                    </button>
-                     <button
-                        onClick={handleClearTranslationInput}
-                        disabled={isLoading || !textToTranslate}
-                        className="text-xs px-2 py-1 border border-gray-600 rounded-md text-gray-300 bg-gray-700/50 hover:bg-gray-700 disabled:opacity-50"
-                    >
-                        Clear
-                    </button>
-                </div>
-                <div className="relative">
-                  <textarea
-                    rows={4}
-                    value={textToTranslate}
-                    onChange={(e) => updateCurrentModeState({ textToTranslate: e.target.value })}
-                    disabled={isLoading}
-                    placeholder="Enter text to translate here..."
-                    className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 resize-none disabled:opacity-50"
-                  />
-                </div>
-                 <div className="mt-4 flex flex-col sm:flex-row gap-4 items-center">
-                    <LanguageSelector 
-                      targetLanguage={targetLanguage} 
-                      setTargetLanguage={(value) => updateCurrentModeState({ targetLanguage: value })}
-                      disabled={isLoading} 
-                      label="2. Select target language"
-                    />
-                </div>
-                <div className="mt-4 flex items-center justify-start gap-4">
-                    <label className="flex items-center">
-                        <input
-                            type="checkbox"
-                            checked={stylizeAndCorrect}
-                            onChange={(e) => updateCurrentModeState({ stylizeAndCorrect: e.target.checked })}
-                            disabled={isLoading}
-                            className="h-4 w-4 rounded border-gray-300 bg-gray-700 text-pink-600 focus:ring-pink-500"
-                        />
-                        <span className="ml-2 text-sm text-gray-300">Correct & Stylize before translating ✨</span>
-                    </label>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right Column: Output */}
-          <div className="flex flex-col gap-4">
-              <ErrorDisplay message={error} />
-              
-              {mode === 'image' ? (
-                <>
-                  {/* Image Generation Output */}
-                  <div className="bg-gray-800/50 p-4 rounded-2xl flex items-center justify-center min-h-[300px] shadow-lg">
-                    {isLoading && imageGenCanGenerate ? (
-                      <LoadingIndicator mode="image" />
-                    ) : assetUrls.length > 0 ? (
-                      <AssetDisplay 
-                        srcs={assetUrls} 
-                        alt={prompt} 
-                        assetType={assetType}
-                        onImageClick={handleImageClick}
-                      />
-                    ) : (
-                      <div className="text-center text-gray-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <p className="mt-2">Your generated image will appear here.</p>
-                      </div>
-                    )}
-                  </div>
-                  {/* Text Translation Output */}
-                  <div className="bg-gray-800/50 p-4 rounded-2xl flex items-center justify-center min-h-[150px] shadow-lg">
-                    {isLoading && canTranslate ? (
-                      <LoadingIndicator mode="translation" />
-                    ) : translationResult ? (
-                      <AssetDisplay 
-                        translationResult={translationResult}
-                      />
-                    ) : (
-                      <div className="text-center text-gray-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m4 13-4-4-4 4M19 17v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2a2 2 0 002 2h10a2 2 0 002-2z" /></svg>
-                        <p className="mt-2">Your translation will appear here.</p>
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                /* Original single pane for other modes */
-                <div className="flex-grow bg-gray-800/50 p-4 rounded-2xl flex items-center justify-center min-h-[300px] lg:min-h-0 shadow-lg">
-                  {isLoading ? (
-                    <LoadingIndicator mode={mode} />
-                  ) : assetUrls.length > 0 ? (
-                    <AssetDisplay 
-                      srcs={assetUrls} 
-                      alt={prompt} 
-                      assetType={assetType}
-                      imageUrl={recipeImageUrl}
-                      onImageClick={handleImageClick}
-                      blogPostImageUrl={blogPostImageUrl}
-                      imageFromBlogPrompt={imageFromBlogPrompt}
-                      setImageFromBlogPrompt={(value) => updateCurrentModeState({ imageFromBlogPrompt: value })}
-                      onGenerateImageFromBlog={handleGenerateImageFromBlogPost}
-                      isGeneratingImageFromBlog={isGeneratingImageFromBlog}
-                      generatedImageFromBlog={generatedImageFromBlog}
-                    />
-                  ) : (
-                    <div className="text-center text-gray-500">
-                      <p>{getPlaceholderText()}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              <GenerateButton onClick={handleGenerate} disabled={isLoading || !canGenerate} mode={mode} />
-              <div className="flex items-center justify-center gap-4">
-                {assetUrls.length > 0 && assetType !== 'productShot' && !isLoading && <DownloadButton assetUrl={assetUrls[0]} assetType={assetType} />}
-                {translationResult && !isLoading && <DownloadButton assetUrl={translationResult} assetType={'translation'} />}
-              </div>
-          </div>
-      </div>
-    );
-  };
-
 
   return (
-    <div className="bg-gray-900 text-white min-h-screen">
-      <main className="container mx-auto px-4 py-8 md:py-12">
-        <Header onHistoryClick={() => setIsHistoryOpen(true)} />
-        <div className="mt-12 flex justify-center">
-          {mainContent()}
+    <div className="min-h-screen text-gray-100 font-sans selection:bg-pink-500 selection:text-white pb-20">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+        <Header onHistoryClick={handleHistoryClick} />
+        
+        {/* Navigation Tabs */}
+        <div className="flex justify-center space-x-2 overflow-x-auto pb-2 no-scrollbar">
+          {(['image', 'recipe', 'speech', 'productShot', 'productAnalyst', 'blogPost', 'recipeCard'] as AppMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-300 ${
+                mode === m
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg transform scale-105'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              {m === 'image' ? 'Image & Translate' : 
+               m === 'recipe' ? 'Recipe Chef' : 
+               m === 'speech' ? 'Text to Speech' : 
+               m === 'productShot' ? 'Product Studio' : 
+               m === 'productAnalyst' ? 'Análisis Inteligente de Productos' :
+               m === 'blogPost' ? 'Blog Post desde URL' : 
+               'Recipe Card'}
+            </button>
+          ))}
         </div>
-      </main>
-      <HistoryPanel
-        history={history}
-        onSelect={handleSelectHistoryItem}
-        onClear={handleClearHistory}
-        isOpen={isHistoryOpen}
-        onClose={() => setIsHistoryOpen(false)}
-      />
-      {currentModeState.selectedImageIndex !== null && currentModeState.assetUrls.length > 0 && (
+
+        <main className="bg-gray-800/50 backdrop-blur-sm rounded-3xl p-6 md:p-10 shadow-2xl border border-gray-700 space-y-8">
+            <ErrorDisplay message={currentModeState.error} />
+            
+            {/* Input Section */}
+            <div className="space-y-6">
+                 {/* Mode Specific Inputs */}
+                 {mode === 'blogPost' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                                Palabra Clave Principal
+                            </label>
+                            <input 
+                                type="text"
+                                value={currentModeState.primaryKeyword}
+                                onChange={(e) => updateCurrentModeState({ primaryKeyword: e.target.value })}
+                                disabled={isLoading}
+                                placeholder="Ej: Inteligencia Artificial"
+                                className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200"
+                            />
+                        </div>
+                        <div>
+                           <label className="block text-sm font-medium text-gray-300 mb-2">
+                                Idioma del Blog Post
+                            </label>
+                             <select
+                                value={currentModeState.blogPostLanguage}
+                                onChange={(e) => updateCurrentModeState({ blogPostLanguage: e.target.value })}
+                                disabled={isLoading}
+                                className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200"
+                            >
+                                <option value="Spanish">Español</option>
+                                <option value="English">English</option>
+                                <option value="German">German</option>
+                                <option value="French">French</option>
+                                <option value="Portuguese">Portuguese</option>
+                            </select>
+                        </div>
+                    </div>
+                 )}
+
+                 <PromptInput 
+                    prompt={currentModeState.prompt} 
+                    setPrompt={(val) => updateCurrentModeState({ prompt: typeof val === 'function' ? val(currentModeState.prompt) : val })}
+                    disabled={isLoading}
+                    similarity={currentModeState.similarity}
+                    setSimilarity={(val) => updateCurrentModeState({ similarity: val })}
+                    removeText={currentModeState.removeText}
+                    setRemoveText={(val) => updateCurrentModeState({ removeText: val })}
+                    translateImageText={currentModeState.translateImageText}
+                    setTranslateImageText={(val) => updateCurrentModeState({ translateImageText: val })}
+                    isAnalyzing={isAnalyzing}
+                    contextualPersonSuggestion={currentModeState.contextualPersonSuggestion}
+                    addPerson={currentModeState.addPerson}
+                    setAddPerson={(val) => updateCurrentModeState({ addPerson: val })}
+                    mode={mode}
+                />
+
+                {(mode === 'image' || mode === 'productAnalyst') && (
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+                        <div className="h-full">
+                          <ImageUploader 
+                              label={mode === 'productAnalyst' ? "Upload product image to analyze" : "2. Upload an image to edit (optional)"}
+                              disabled={isLoading}
+                              setImageData={(data) => updateCurrentModeState({ singleImageData: data })}
+                          />
+                        </div>
+                         {mode === 'image' && (
+                           <div className="space-y-4">
+                              <div>
+                                  <div className="flex justify-between items-center mb-2">
+                                      <label className="block text-sm font-medium text-gray-300">
+                                          3. Translate text (optional)
+                                      </label>
+                                      {currentModeState.textToTranslate && (
+                                          <button
+                                              onClick={() => updateCurrentModeState({ textToTranslate: '' })}
+                                              className="p-1 rounded-full bg-red-900/30 text-red-400 hover:bg-red-900/60 hover:text-red-200 transition-colors"
+                                              title="Clear text"
+                                          >
+                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                              </svg>
+                                          </button>
+                                      )}
+                                  </div>
+                                  <textarea
+                                      rows={4}
+                                      value={currentModeState.textToTranslate}
+                                      onChange={(e) => updateCurrentModeState({ textToTranslate: e.target.value })}
+                                      disabled={isLoading}
+                                      placeholder="Enter text to translate..."
+                                      className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 resize-none"
+                                  />
+                              </div>
+                              <div className="flex gap-4 items-end">
+                                  <div className="flex-grow">
+                                      <LanguageSelector 
+                                          targetLanguage={currentModeState.targetLanguage}
+                                          setTargetLanguage={(lang) => updateCurrentModeState({ targetLanguage: lang })}
+                                          disabled={isLoading}
+                                      />
+                                  </div>
+                                  <div className="flex items-center h-full pb-3">
+                                      <label className="flex items-center space-x-2 cursor-pointer">
+                                          <input 
+                                              type="checkbox" 
+                                              checked={currentModeState.stylizeAndCorrect}
+                                              onChange={(e) => updateCurrentModeState({ stylizeAndCorrect: e.target.checked })}
+                                              className="form-checkbox h-5 w-5 text-pink-500 rounded border-gray-600 bg-gray-700 focus:ring-pink-500"
+                                              disabled={isLoading}
+                                          />
+                                          <span className="text-sm text-gray-300">Stylize & Correct</span>
+                                      </label>
+                                  </div>
+                              </div>
+                              
+                              <div>
+                                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                                      4. Alternative Text (optional)
+                                  </label>
+                                  <div className="flex flex-col space-y-2">
+                                      <textarea
+                                          rows={2}
+                                          value={currentModeState.altText || ''}
+                                          readOnly
+                                          placeholder="Alt text will appear here..."
+                                          className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 resize-none text-sm text-gray-300"
+                                      />
+                                      <button
+                                          onClick={handleGenerateAltText}
+                                          disabled={isLoading || !currentModeState.singleImageData}
+                                          className="self-end px-4 py-2 text-xs font-semibold rounded-full bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                                      >
+                                          Generate Alt Text
+                                      </button>
+                                  </div>
+                              </div>
+
+                              <div>
+                                  <div className="flex justify-between items-center mb-2">
+                                      <label className="block text-sm font-medium text-gray-300">
+                                          5. Social Media Post (optional)
+                                      </label>
+                                      {currentModeState.socialMediaText && (
+                                          <button
+                                              onClick={() => updateCurrentModeState({ socialMediaText: '' })}
+                                              className="p-1 rounded-full bg-red-900/30 text-red-400 hover:bg-red-900/60 hover:text-red-200 transition-colors"
+                                              title="Clear text"
+                                          >
+                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                              </svg>
+                                          </button>
+                                      )}
+                                  </div>
+                                  <div className="flex flex-col space-y-2">
+                                      <select
+                                          value={currentModeState.socialMediaLanguage || 'German'}
+                                          onChange={(e) => updateCurrentModeState({ socialMediaLanguage: e.target.value })}
+                                          disabled={isLoading}
+                                          className="w-full p-2 bg-gray-700/50 border border-gray-600 rounded-lg text-sm mb-2 focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200"
+                                      >
+                                          <option value="German">German</option>
+                                          <option value="English">English</option>
+                                          <option value="Spanish">Spanish</option>
+                                          <option value="French">French</option>
+                                          <option value="Italian">Italian</option>
+                                          <option value="Portuguese">Portuguese</option>
+                                          <option value="Japanese">Japanese</option>
+                                          <option value="Chinese">Chinese</option>
+                                      </select>
+                                      
+                                      <textarea
+                                          rows={4}
+                                          value={currentModeState.socialMediaText || ''}
+                                          readOnly
+                                          placeholder="Pinterest/Facebook post description will appear here..."
+                                          className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-all duration-200 resize-none text-sm text-gray-300"
+                                      />
+                                      <button
+                                          onClick={handleGenerateSocialMediaPost}
+                                          disabled={isLoading || !currentModeState.singleImageData}
+                                          className="self-end px-4 py-2 text-xs font-semibold rounded-full bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                                      >
+                                          Generate Post
+                                      </button>
+                                  </div>
+                              </div>
+                           </div>
+                         )}
+                         {mode === 'productAnalyst' && (
+                             <div className="flex flex-col justify-center text-center p-8 bg-gray-800/30 rounded-xl border border-dashed border-gray-700">
+                                 <h3 className="text-xl font-bold text-pink-400 mb-4">Análisis Inteligente de Productos</h3>
+                                 <p className="text-gray-400 text-sm mb-6">
+                                     Sube una imagen de tu producto y extraeremos automáticamente:<br/>
+                                     • Descripción Profesional<br/>
+                                     • Método de Aplicación<br/>
+                                     • Nombre en Árabe y Francés
+                                 </p>
+                                 <div className="flex justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-pink-500/10 flex items-center justify-center text-pink-500 animate-pulse">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                        </svg>
+                                    </div>
+                                 </div>
+                             </div>
+                         )}
+                   </div>
+                )}
+                
+                {mode === 'productShot' && (
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+                        <div className="h-full">
+                          <ImageUploader 
+                              label="2. Upload product images (Required, max 5)"
+                              disabled={isLoading}
+                              multiple
+                              images={currentModeState.productImages}
+                              onImagesChange={(images) => updateCurrentModeState({ productImages: images })}
+                          />
+                        </div>
+                         <div className="space-y-4">
+                            <ImageUploader 
+                                label="3. Upload inspiration style image (Optional)"
+                                disabled={isLoading}
+                                setImageData={(data) => updateCurrentModeState({ inspirationImageData: data })}
+                            />
+                         </div>
+                     </div>
+                )}
+
+                {mode === 'speech' && (
+                    <VoiceSelector 
+                        selectedVoice={currentModeState.selectedVoice}
+                        setSelectedVoice={(voice) => updateCurrentModeState({ selectedVoice: voice })}
+                        disabled={isLoading}
+                    />
+                )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 items-center justify-center pt-6 border-t border-gray-700">
+              <div className="w-full sm:w-2/3">
+                <GenerateButton 
+                  onClick={
+                    mode === 'image' ? handleImageAndTextGeneration :
+                    mode === 'recipe' ? handleRecipeGeneration :
+                    mode === 'recipeCard' ? handleRecipeCardGeneration :
+                    mode === 'speech' ? handleSpeechGeneration :
+                    mode === 'productShot' ? handleProductShotGeneration :
+                    mode === 'productAnalyst' ? handleProductAnalysis :
+                    handleBlogPostGeneration
+                  }
+                  disabled={isLoading || !!currentModeState.error}
+                  mode={mode}
+                />
+              </div>
+            </div>
+            
+            {/* Results Display */}
+            {isLoading && <LoadingIndicator mode={mode === 'image' && currentModeState.textToTranslate && !currentModeState.prompt ? 'translation' : mode} />}
+            
+            {!isLoading && (currentModeState.assetUrls.length > 0 || currentModeState.translationResult || currentModeState.socialMediaText || currentModeState.productInfoResult) && (
+              <div className="space-y-6 pt-6 border-t border-gray-700 animate-fade-in-up">
+                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-500">
+                      Generated Result
+                    </h2>
+                     <DownloadButton 
+                        assetUrl={currentModeState.assetUrls.length > 0 ? currentModeState.assetUrls[0] : (currentModeState.translationResult ? currentModeState.translationResult : null)} 
+                        assetType={currentModeState.assetType || (currentModeState.translationResult ? 'translation' : (currentModeState.productInfoResult ? 'productInfo' : null))} 
+                      />
+                 </div>
+                 
+                 <div className="bg-gray-900/30 rounded-2xl p-4 border border-gray-700/50">
+                   <AssetDisplay 
+                      srcs={currentModeState.assetUrls} 
+                      assetType={currentModeState.assetType}
+                      translationResult={currentModeState.translationResult}
+                      socialMediaText={currentModeState.socialMediaText}
+                      productInfo={currentModeState.productInfoResult}
+                      onImageClick={openModal}
+                      imageUrl={currentModeState.recipeImageUrl}
+                      blogPostImageUrl={currentModeState.blogPostImageUrl}
+                      imageFromBlogPrompt={currentModeState.imageFromBlogPrompt}
+                      setImageFromBlogPrompt={(val) => updateCurrentModeState({ imageFromBlogPrompt: val })}
+                      onGenerateImageFromBlog={handleGenerateImageFromBlogPost}
+                      isGeneratingImageFromBlog={currentModeState.isGeneratingImageFromBlog}
+                      generatedImageFromBlog={currentModeState.generatedImageFromBlog}
+                      onTransferText={handleTransferText}
+                      onRemoveMainAsset={handleRemoveMainAsset}
+                      onRemoveTranslation={handleRemoveTranslation}
+                      onRemoveSocialMedia={handleRemoveSocialMedia}
+                   />
+                 </div>
+              </div>
+            )}
+        </main>
+      </div>
+      
+      {modalOpen && currentModeState.assetUrls.length > 0 && (
         <Modal 
-          src={currentModeState.assetUrls[currentModeState.selectedImageIndex]}
-          alt={`Generated asset ${currentModeState.selectedImageIndex + 1}`}
-          onClose={handleCloseModal}
-          onPrev={handleModalPrev}
-          onNext={handleModalNext}
-          showPrev={currentModeState.assetUrls.length > 1}
-          showNext={currentModeState.assetUrls.length > 1}
+            src={currentModeState.assetUrls[modalImageIndex]} 
+            alt={`Result ${modalImageIndex + 1}`} 
+            onClose={closeModal}
+            onPrev={prevModalImage}
+            onNext={nextModalImage}
+            showPrev={currentModeState.assetUrls.length > 1}
+            showNext={currentModeState.assetUrls.length > 1}
         />
       )}
+
+      <HistoryPanel 
+        isOpen={isHistoryOpen} 
+        onClose={handleHistoryClose} 
+        history={history} 
+        onSelect={handleHistorySelect}
+        onClear={handleClearHistory}
+      />
     </div>
   );
 };

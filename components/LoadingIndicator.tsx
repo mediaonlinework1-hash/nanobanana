@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 
 const imageLoadingMessages = [
@@ -64,9 +65,19 @@ const productShotLoadingMessages = [
   "¡Tus fotos de producto están casi listas!",
 ];
 
+const productAnalystMessages = [
+  "Escaneando el producto visualmente...",
+  "Identificando ingredientes y componentes...",
+  "Redactando descripción profesional...",
+  "Traduciendo nombres a árabe y francés...",
+  "Extrayendo método de aplicación...",
+  "¡Casi terminamos el análisis detallado!",
+];
+
 
 interface LoadingIndicatorProps {
-  mode: 'image' | 'recipe' | 'translation' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard';
+  // Fix: Explicitly include all AppMode options plus 'translation' to avoid type mismatches in App.tsx
+  mode: 'image' | 'recipe' | 'translation' | 'speech' | 'productShot' | 'blogPost' | 'recipeCard' | 'productAnalyst';
 }
 
 export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
@@ -97,6 +108,10 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ mode }) => {
     case 'productShot':
       messages = productShotLoadingMessages;
       title = 'Creando tu Foto de Producto';
+      break;
+    case 'productAnalyst':
+      messages = productAnalystMessages;
+      title = 'Analizando Producto...';
       break;
     case 'image':
     default:
